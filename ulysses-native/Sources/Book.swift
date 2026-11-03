@@ -16,34 +16,64 @@ struct BookChapter {
 extension DocState {
 
     /// 按侧栏顺序展开成章节列表。scope = 某个分组时，只导出它和它的子分组。
-    func bookChapters(scope: String?) -> [BookChapter] {
+    func bookChapters(scope: String?, numbering: Bool = true) -> [BookChapter] {
         var out: [BookChapter] = []
 
-        func emit(_ sheet: Sheet, level: Int) {
-            out.append(BookChapter(title: sheet.title, content: sheet.content,
+        // 章号按「分组内第几篇」算，换分组就重新从第一章开始
+        func emit(_ sheet: Sheet, level: Int, index: Int, inFolder: Bool) {
+            let title = (numbering && inFolder) ? numberedTitle(sheet.title, index: index) : sheet.title
+            out.append(BookChapter(title: title, content: sheet.content,
                                    level: min(level, 6), isGroup: false))
         }
         func walkChildren(of parent: String?, depth: Int) {
             for f in childFolders(of: parent) {
                 out.append(BookChapter(title: f.name, content: "", level: min(depth, 5), isGroup: true))
-                for s in sheets(in: f.id) { emit(s, level: depth + 1) }
+                var i = 0
+                for s in sheets(in: f.id) { i += 1; emit(s, level: depth + 1, index: i, inFolder: true) }
                 walkChildren(of: f.id, depth: depth + 1)
             }
         }
 
         let startParent: String? = scope.flatMap { folder(id: $0) != nil ? $0 : nil }
-        // 先走分组（那才是"书"），没归组的零散文稿放最后，不至于把后记插到正文中间
-        walkChildren(of: startParent, depth: 2)
-        for s in sheets(in: startParent) { emit(s, level: 2) }
+        if startParent != nil {
+            // 只导某个分组时：组里的文稿就是这部书的章节，先排它们、再排子分组
+            var i = 0
+            for s in sheets(in: startParent) { i += 1; emit(s, level: 2, index: i, inFolder: true) }
+            walkChildren(of: startParent, depth: 2)
+        } else {
+            // 整库导出：先走分组（那才是"书"），没归组的零散文稿放最后，不至于把后记插到正文中间
+            walkChildren(of: startParent, depth: 2)
+            for s in sheets(in: startParent) { emit(s, level: 2, index: 0, inFolder: false) }
+        }
         return out
     }
 
-    /// Markdown 版本：保留原来的 Markdown 标记，方便你再编辑
+    /// 「开始的地方」→「第一章 · 开始的地方」；已经自带「第 x 章」的就不再套一层
+    func numberedTitle(_ title: String, index: Int) -> String {
+        let t = title.trimmingCharacters(in: .whitespaces)
+        if t.hasPrefix("第"), t.contains("章") || t.contains("节") { return t }
+        let num = chineseNumber(index)
+        if t.isEmpty { return "第\(num)章" }
+        return "第\(num)章 · \(t)"
+    }
+
+    /// 1 → 一，12 → 十二，23 → 二十三（只到 99，够小说用）
+    func chineseNumber(_ n: Int) -> String {
+        if n <= 0 { return "\(n)" }
+        if n > 99 { return "\(n)" }
+        let digits = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"]
+        if n < 10 { return digits[n] }
+        let tens = n / 10, ones = n % 10
+        var s = tens == 1 ? "十" : digits[tens] + "十"
+        if ones > 0 { s += digits[ones] }
+        return s
+    }
+
     /// 导出 Word 能直接打开的 RTF。
     /// 选 RTF 不选 .docx 的原因：docx 是 zip + OOXML，要自己写压缩和一堆 XML；
     /// 而 RTF 是纯文本格式，AppKit 原生支持写出，Word/WPS/Pages 都能打开。
-    func bookRTF(title: String, scope: String? = nil) -> Data? {
-        let chapters = bookChapters(scope: scope)
+    func bookRTF(title: String, scope: String? = nil, numbering: Bool = true) -> Data? {
+        let chapters = bookChapters(scope: scope, numbering: numbering)
         let bodyFont = NSFont(name: "STSongti-SC-Regular", size: 12) ?? NSFont.systemFont(ofSize: 12)
         let out = NSMutableAttributedString()
 
@@ -130,8 +160,8 @@ extension DocState {
         return try? out.data(from: NSRange(location: 0, length: out.length), documentAttributes: attrs)
     }
 
-    func bookMarkdown(title: String, scope: String?) -> String {
-        let chapters = bookChapters(scope: scope)
+    func bookMarkdown(title: String, scope: String? = nil, numbering: Bool = true) -> String {
+        let chapters = bookChapters(scope: scope, numbering: numbering)
         var lines: [String] = []
         lines.append("# " + title)
         let words = chapters.reduce(0) { $0 + ($1.isGroup ? 0 : statCJK($1.content) + statLatin($1.content)) }
@@ -149,8 +179,8 @@ extension DocState {
     }
 
     /// 网页版本：不想装 Markdown 编辑器的人，双击就能在浏览器里看/打印
-    func bookHTML(title: String, scope: String?) -> String {
-        let chapters = bookChapters(scope: scope)
+    func bookHTML(title: String, scope: String? = nil, numbering: Bool = true) -> String {
+        let chapters = bookChapters(scope: scope, numbering: numbering)
         let words = chapters.reduce(0) { $0 + ($1.isGroup ? 0 : statCJK($1.content) + statLatin($1.content)) }
         var body: [String] = []
         for c in chapters {
@@ -286,15 +316,19 @@ extension EditorRoot {
             scopePopup.item(at: 1)?.isEnabled = false
         }
 
+        let numberingBox = NSButton(checkboxWithTitle: "自动加章号（第一章 · 开始的地方）", target: nil, action: nil)
+        numberingBox.state = .on
+
         let grid = NSGridView(views: [
             [NSTextField(labelWithString: "书名"), titleField],
             [NSTextField(labelWithString: "格式"), formatPopup],
             [NSTextField(labelWithString: "范围"), scopePopup],
+            [NSGridCell.emptyContentView, numberingBox],
         ])
         grid.rowSpacing = 8
         grid.columnSpacing = 10
         grid.column(at: 0).xPlacement = .trailing
-        grid.frame = NSRect(x: 0, y: 0, width: 380, height: 96)
+        grid.frame = NSRect(x: 0, y: 0, width: 380, height: 124)
         alert.accessoryView = grid
 
         guard alert.runModal() == .alertFirstButtonReturn else { return }
@@ -305,6 +339,7 @@ extension EditorRoot {
             ? doc.sheets.first(where: { $0.id == doc.activeId })?.folderId
             : nil
         let ext = ["html", "md", "rtf"][max(0, min(2, format))]
+        let numbering = (numberingBox.state == .on)
         let words = doc.bookChapters(scope: scope).reduce(0) {
             $0 + ($1.isGroup ? 0 : statCJK($1.content) + statLatin($1.content))
         }
@@ -313,15 +348,15 @@ extension EditorRoot {
             try FileManager.default.createDirectory(at: bookExportDir, withIntermediateDirectories: true)
             let url = bookUniqueURL(baseName: bookSafeName(bookTitle), ext: ext)
             if ext == "rtf" {
-                guard let rtf = doc.bookRTF(title: bookTitle, scope: scope) else {
+                guard let rtf = doc.bookRTF(title: bookTitle, scope: scope, numbering: numbering) else {
                     barLabel.stringValue = "导出 Word 失败：系统没写出 RTF（可以选网页或 Markdown）"
                     return
                 }
                 try rtf.write(to: url, options: .atomic)
             } else {
                 let content = (ext == "html")
-                    ? doc.bookHTML(title: bookTitle, scope: scope)
-                    : doc.bookMarkdown(title: bookTitle, scope: scope)
+                    ? doc.bookHTML(title: bookTitle, scope: scope, numbering: numbering)
+                    : doc.bookMarkdown(title: bookTitle, scope: scope, numbering: numbering)
                 try Data(content.utf8).write(to: url, options: .atomic)
             }
             let short = url.path.replacingOccurrences(of: "/Users/\(NSUserName())", with: "~")
