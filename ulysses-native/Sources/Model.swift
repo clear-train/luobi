@@ -29,6 +29,9 @@ struct DocState: Codable {
     var fontSize: Double = 17
     var seenGuide: Bool = false     // 首次启动自动弹一次使用指南
     var indentParagraphs: Bool = true  // 中文习惯：每段首行缩进两个字
+    var dailyGoal: Int = 0             // 每日目标字数，0 = 不设
+    var dailyBase: [String: Int] = [:] // "2026-11-03" -> 当天开工时全书字数
+    var dailyDone: [String: Int] = [:] // "2026-11-03" -> 当天最多写到过多少字
 
     init(sheets: [Sheet], activeId: String) {
         self.sheets = sheets
@@ -36,7 +39,7 @@ struct DocState: Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case sheets, activeId, typewriter, markdown, theme, goal, folders, sidebarVisible, fontSize, seenGuide, indentParagraphs
+        case sheets, activeId, typewriter, markdown, theme, goal, folders, sidebarVisible, fontSize, seenGuide, indentParagraphs, dailyGoal, dailyBase, dailyDone
     }
 
     // 手写解码：老版本 state.json 缺字段时回落默认值，不丢数据
@@ -52,6 +55,9 @@ struct DocState: Codable {
         sidebarVisible = try c.decodeIfPresent(Bool.self, forKey: .sidebarVisible) ?? true
         fontSize = try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? 17
         indentParagraphs = try c.decodeIfPresent(Bool.self, forKey: .indentParagraphs) ?? true
+        dailyGoal = try c.decodeIfPresent(Int.self, forKey: .dailyGoal) ?? 0
+        dailyBase = try c.decodeIfPresent([String: Int].self, forKey: .dailyBase) ?? [:]
+        dailyDone = try c.decodeIfPresent([String: Int].self, forKey: .dailyDone) ?? [:]
         seenGuide = try c.decodeIfPresent(Bool.self, forKey: .seenGuide) ?? false
     }
 
@@ -79,6 +85,7 @@ struct DocState: Codable {
 - 专注：收起侧栏和工具栏，正文收成一条居中的栏，只留字。按 Esc 或点右上角回来。
 - 底部状态栏写着「本篇多少字 / 全书多少字」，写长篇时心里有数。
 - 成书：把分组里的稿子按侧栏顺序拼成一整本，导出网页（双击就能看/打印）或 Markdown。
+- 写作目标：侧栏左下角点「写作目标」，设每天多少字；底部细进度条和状态栏会跟着涨，达标变绿。
 
 ## 你的字存在哪儿
 
@@ -115,6 +122,64 @@ struct DocState: Codable {
     /// 某个分组下的直接子文稿
     func sheets(in parent: String?) -> [Sheet] {
         sheets.filter { ($0.folderId ?? nil) == parent }
+    }
+}
+
+// MARK: - 今日写作量
+//
+// 做法故意很朴素：记录「今天开工时全书多少字」，之后用当前总数去减。
+// 这样不用监听每一次敲键，删改也不会算错方向（删掉的字会从今日里扣回去）。
+
+func dayKey(_ date: Date = Date()) -> String {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd"
+    return f.string(from: date)
+}
+
+func totalWords(_ doc: DocState) -> Int {
+    doc.sheets.reduce(0) { $0 + statCJK($1.content) + statLatin($1.content) }
+}
+
+extension DocState {
+    /// 今天写了多少字（删字会变成倒扣，最低 0）
+    var todayWritten: Int {
+        let base = dailyBase[dayKey()] ?? totalWords(self)
+        return max(0, totalWords(self) - base)
+    }
+
+    /// 启动/跨天时补一条基线；顺手清掉两周前的记录，state.json 不至于越写越大
+    mutating func ensureDailyBase() {
+        let key = dayKey()
+        if dailyBase[key] == nil {
+            dailyBase[key] = totalWords(self)
+            dailyDone[key] = 0
+        }
+        if dailyBase.count > 21 {
+            let keep = dailyBase.keys.sorted().suffix(14)
+            dailyBase = dailyBase.filter { keep.contains($0.key) }
+            dailyDone = dailyDone.filter { keep.contains($0.key) }
+        }
+    }
+
+    /// 每次保存时记下今天的最好成绩
+    mutating func recordDaily() {
+        let key = dayKey()
+        if dailyBase[key] == nil { dailyBase[key] = totalWords(self) }
+        dailyDone[key] = max(dailyDone[key] ?? 0, todayWritten)
+    }
+
+    /// 连续达标天数（今天没达标就从昨天往回数）
+    var dailyStreak: Int {
+        guard dailyGoal > 0 else { return 0 }
+        var streak = 0
+        var cursor = Date()
+        if todayWritten < dailyGoal { cursor = cursor.addingTimeInterval(-86400) }
+        for _ in 0..<400 {
+            let key = dayKey(cursor)
+            let done = dailyDone[key] ?? 0
+            if done >= dailyGoal { streak += 1; cursor = cursor.addingTimeInterval(-86400) } else { break }
+        }
+        return streak
     }
 }
 
@@ -159,8 +224,9 @@ enum Vault {
     static func load() -> DocState {
         ensure()
         guard let data = try? Data(contentsOf: file), !data.isEmpty else { return .initial() }
-        if let fresh = try? JSONDecoder().decode(DocState.self, from: data),
+        if var fresh = try? JSONDecoder().decode(DocState.self, from: data),
            !fresh.sheets.isEmpty, fresh.sheet(id: fresh.activeId) != nil {
+            fresh.ensureDailyBase()
             return fresh
         }
         if let (recovered, note) = Vault.recover() {

@@ -56,6 +56,14 @@ extension EditorRoot {
     @objc func refreshGoalProgress(_ sender: Any?) {
         if gaugeGoalBar == nil { installGoalBar(sender) }
         guard let bar = gaugeGoalBar else { return }
+        // 优先用「今日目标」：写小说最需要的是今天有没有推进，而不是全书总量
+        if doc.dailyGoal > 0 {
+            bar.isHidden = false
+            let n = doc.todayWritten
+            bar.progress = min(1, Double(n) / Double(doc.dailyGoal))
+            bar.reachedGoal = (n >= doc.dailyGoal)
+            return
+        }
         let goal = doc.goal
         bar.isHidden = (goal <= 0)
         guard goal > 0 else { return }
@@ -64,31 +72,45 @@ extension EditorRoot {
         bar.reachedGoal = (n >= goal)
     }
 
-    @objc func setGoalDialog(_ sender: Any?) {
+    /// 写作目标面板：今日进度 + 连续达标 + 设定每日目标
+    @objc func showGoalPanel(_ sender: Any?) {
         let alert = NSAlert()
-        alert.messageText = "设定写作目标字数"
-        alert.informativeText = "达到目标后进度条变绿；清除则不再显示进度条。"
+        alert.messageText = "今日写作"
+        let n = doc.todayWritten
+        let goal = max(doc.dailyGoal, doc.goal)
+        let goalText = doc.dailyGoal > 0 ? "\(doc.dailyGoal) 字" : "未设定"
+        alert.informativeText = "今天写了 \(n) 字 ；目标 \(goalText)；连续达标 \(doc.dailyStreak) 天"
+
+        let track = GoalProgressTrack()
+        track.translatesAutoresizingMaskIntoConstraints = false
+        track.heightAnchor.constraint(equalToConstant: 6).isActive = true
+        track.widthAnchor.constraint(equalToConstant: 320).isActive = true
+        if goal > 0 {
+            track.progress = min(1, Double(n) / Double(goal))
+            track.reachedGoal = n >= goal
+        }
+
         let field = NSTextField()
-        field.placeholderString = "总字数，例如 1000"
-        field.stringValue = (doc.goal > 0) ? String(doc.goal) : ""
+        field.placeholderString = "每天多少字，例如 500（0 = 不设）"
+        field.stringValue = doc.dailyGoal > 0 ? String(doc.dailyGoal) : ""
         field.translatesAutoresizingMaskIntoConstraints = false
-        field.widthAnchor.constraint(equalToConstant: 180).isActive = true
-        alert.accessoryView = field
-        alert.addButton(withTitle: "设定")
-        alert.addButton(withTitle: "清除(0)")
+        field.widthAnchor.constraint(equalToConstant: 240).isActive = true
+
+        let stack = NSStackView(views: [track, field])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 10
+        stack.frame = NSRect(x: 0, y: 0, width: 320, height: 48)
+        alert.accessoryView = stack
+
+        alert.addButton(withTitle: "保存")
         alert.addButton(withTitle: "取消")
 
         let apply: (NSApplication.ModalResponse) -> Void = { [weak self] resp in
-            guard let self = self else { return }
-            switch resp {
-            case .alertFirstButtonReturn:
-                let text = field.stringValue.trimmingCharacters(in: .whitespaces)
-                self.doc.goal = max(0, Int(text) ?? 0)
-            case .alertSecondButtonReturn:
-                self.doc.goal = 0
-            default:
-                return
-            }
+            guard let self = self, resp == .alertFirstButtonReturn else { return }
+            let text = field.stringValue.trimmingCharacters(in: .whitespaces)
+            self.doc.dailyGoal = max(0, Int(text) ?? 0)
+            if self.doc.dailyGoal > 0 { self.doc.ensureDailyBase() }
             self.persistNow()
             self.refreshGoalProgress(nil)
         }
@@ -99,4 +121,7 @@ extension EditorRoot {
             apply(alert.runModal())
         }
     }
+
+    /// 旧入口保留：侧栏底部「写作目标」按钮与菜单都还能用
+    @objc func setGoalDialog(_ sender: Any?) { showGoalPanel(sender) }
 }

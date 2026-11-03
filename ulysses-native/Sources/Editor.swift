@@ -381,6 +381,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     func persistNow() {
+        doc.recordDaily()
         let ok = Vault.save(doc)
         refreshBar(saved: ok)
     }
@@ -396,6 +397,9 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let total = doc.sheets.reduce(0) { $0 + statCJK($1.content) + statLatin($1.content) }
         let count = n == 0 ? "本篇空白" : "本篇 \(n) 字"
         var s = "Ulysses Native · \(doc.sheets.count) 篇 · " + count + " · 全书 \(total) 字"
+        if doc.dailyGoal > 0 {
+            s += " · 今日 \(doc.todayWritten)/\(doc.dailyGoal)"
+        }
         if let saved = saved {
             s += " · " + (saved ? "已自动保存" : "保存失败：请把 App 拖进「应用程序」后从访达打开")
         }

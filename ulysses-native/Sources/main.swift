@@ -71,7 +71,7 @@ for (name, items) in [
         NSMenuItem(title: "打字机居中", action: Selector(("toggleTypewriter:")), keyEquivalent: ""),
         NSMenuItem(title: "Markdown 排版", action: Selector(("toggleMarkdown:")), keyEquivalent: ""),
         NSMenuItem(title: "外观（主题与字号）…", action: Selector(("showThemePanel:")), keyEquivalent: ""),
-        NSMenuItem(title: "设定写作目标字数…", action: Selector(("setGoalDialog:")), keyEquivalent: ""),
+        NSMenuItem(title: "今日写作目标…", action: Selector(("showGoalPanel:")), keyEquivalent: ""),
     ]),
     ("窗口", [
         NSMenuItem(title: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"),
