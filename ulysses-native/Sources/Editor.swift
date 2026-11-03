@@ -63,7 +63,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         wantsLayer = true
 
         // --- 侧栏 ---
-        searchField.placeholderString = "搜索文稿"
+        searchField.placeholderString = "搜索标题或正文"
         searchField.font = NSFont.systemFont(ofSize: 12)
         searchField.sendsSearchStringImmediately = true
         searchField.target = self
@@ -367,6 +367,15 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     @objc func searchChanged(_ sender: Any?) {
         refreshTable()
+        let q = searchField.stringValue.trimmingCharacters(in: .whitespaces)
+        if q.isEmpty {
+            refreshBar()
+        } else {
+            let n = filtered.count
+            barLabel.stringValue = n == 0
+                ? "搜索「\(q)」：没有匹配，换个词试试"
+                : "搜索「\(q)」：\(n) 篇命中，点一条跳到命中处"
+        }
     }
 
     // MARK: 保存（800ms 防抖）

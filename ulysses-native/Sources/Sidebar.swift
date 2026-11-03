@@ -52,6 +52,57 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
         }
     }
 
+    /// 当前搜索词（小写，去掉首尾空白）
+    var searchQuery: String {
+        searchField.stringValue.trimmingCharacters(in: .whitespaces).lowercased()
+    }
+
+    /// 在这篇文稿里找第一个命中的位置（标题优先，其次正文）
+    func matchRange(in sheet: Sheet) -> NSRange? {
+        let q = searchQuery
+        guard !q.isEmpty else { return nil }
+        let title = sheet.title as NSString
+        let hitTitle = title.range(of: q, options: .caseInsensitive)
+        if hitTitle.location != NSNotFound { return nil }   // 标题命中就不用跳正文
+        let content = sheet.content as NSString
+        let hit = content.range(of: q, options: .caseInsensitive)
+        return hit.location == NSNotFound ? nil : hit
+    }
+
+    /// 搜索时显示的一行上下文：命中词前后各留一点字，换行压成空格
+    func searchSnippet(for sheet: Sheet) -> NSAttributedString {
+        let q = searchQuery
+        let content = sheet.content.replacingOccurrences(of: "\n", with: " ")
+        let ns = content as NSString
+        let hit = ns.range(of: q, options: .caseInsensitive)
+        let body: String
+        if hit.location == NSNotFound {
+            body = String(content.prefix(60))    // 只命中标题时，给个开头当预览
+        } else {
+            let start = max(0, hit.location - 18)
+            let end = min(ns.length, hit.location + hit.length + 24)
+            var piece = ns.substring(with: NSRange(location: start, length: end - start))
+            if start > 0 { piece = "…" + piece }
+            if end < ns.length { piece += "…" }
+            body = piece
+        }
+        let attr = NSMutableAttributedString(
+            string: body,
+            attributes: [.font: NSFont.systemFont(ofSize: 11),
+                         .foregroundColor: NSColor.secondaryLabelColor])
+        // 把命中词标出来，扫一眼就知道为什么这篇被搜出来
+        if hit.location != NSNotFound, hit.length > 0 {
+            let shown = attr.string as NSString
+            let r = shown.range(of: q, options: .caseInsensitive)
+            if r.location != NSNotFound {
+                attr.addAttributes([.foregroundColor: NSColor.labelColor,
+                                    .backgroundColor: NSColor.selectedTextBackgroundColor.withAlphaComponent(0.35)],
+                                   range: r)
+            }
+        }
+        return attr
+    }
+
     func rootItems() -> [SideItem] {
         if isSearching { return filtered.map { SideItem(.sheet($0)) } }
         var out: [SideItem] = []
@@ -129,8 +180,18 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
 
     // MARK: NSOutlineViewDelegate
 
+    func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
+        isSearching ? 46 : 28
+    }
+
     func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
         guard let it = item as? SideItem else { return nil }
+
+        // 搜索态用两行单元格：标题 + 命中片段
+        if isSearching, case .sheet(let s) = it.kind {
+            return searchCell(in: outlineView, sheet: s)
+        }
+
         let cellID = NSUserInterfaceItemIdentifier("cell")
         let cell: NSTableCellView
         if let reuse = outlineView.makeView(withIdentifier: cellID, owner: nil) as? NSTableCellView {
@@ -176,6 +237,48 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
         return cell
     }
 
+    private func searchCell(in outlineView: NSOutlineView, sheet s: Sheet) -> NSView {
+        let cellID = NSUserInterfaceItemIdentifier("searchCell")
+        let cell: NSTableCellView
+        var titleLabel: NSTextField
+        var snippetLabel: NSTextField
+        if let reuse = outlineView.makeView(withIdentifier: cellID, owner: nil) as? NSTableCellView,
+           let t = reuse.viewWithTag(101) as? NSTextField,
+           let n = reuse.viewWithTag(102) as? NSTextField {
+            cell = reuse
+            titleLabel = t
+            snippetLabel = n
+        } else {
+            cell = NSTableCellView()
+            cell.identifier = cellID
+            titleLabel = NSTextField(labelWithString: "")
+            titleLabel.tag = 101
+            titleLabel.lineBreakMode = .byTruncatingTail
+            titleLabel.translatesAutoresizingMaskIntoConstraints = false
+            snippetLabel = NSTextField(labelWithString: "")
+            snippetLabel.tag = 102
+            snippetLabel.lineBreakMode = .byTruncatingTail
+            snippetLabel.translatesAutoresizingMaskIntoConstraints = false
+            cell.addSubview(titleLabel)
+            cell.addSubview(snippetLabel)
+            cell.textField = titleLabel
+            NSLayoutConstraint.activate([
+                titleLabel.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 6),
+                titleLabel.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -8),
+                titleLabel.topAnchor.constraint(equalTo: cell.topAnchor, constant: 6),
+                snippetLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+                snippetLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+                snippetLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 1),
+            ])
+        }
+        let isActive = s.id == doc.activeId
+        titleLabel.stringValue = s.title.isEmpty ? "未命名" : s.title
+        titleLabel.font = NSFont.systemFont(ofSize: 12.5, weight: isActive ? .semibold : .regular)
+        titleLabel.textColor = isActive ? .labelColor : .labelColor
+        snippetLabel.attributedStringValue = searchSnippet(for: s)
+        return cell
+    }
+
     func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
         guard let it = item as? SideItem else { return false }
         // 点分组 = 展开/收起，不改变当前文稿
@@ -190,8 +293,19 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
         guard !updatingTable else { return }
         let row = table.selectedRow
         guard row >= 0, let it = table.item(atRow: row) as? SideItem, let s = it.sheet else { return }
-        guard s.id != doc.activeId else { return }
-        switchTo(s.id)
+        let wasSearching = isSearching
+        let pending = wasSearching ? matchRange(in: s) : nil
+        if s.id != doc.activeId { switchTo(s.id) }
+        if let r = pending { jump(to: r) }
+    }
+
+    /// 把光标带到命中处，并让它落到屏幕中间
+    func jump(to range: NSRange) {
+        guard range.location != NSNotFound, range.location <= (textView.string as NSString).length else { return }
+        textView.setSelectedRange(range)
+        textView.scrollRangeToVisible(range)
+        textView.centerSelectionInVisibleArea(nil)
+        window?.makeFirstResponder(textView)
     }
 
     func outlineViewItemDidExpand(_ notification: Notification) {
