@@ -74,6 +74,6 @@ if [ "$PUBLISH" = 1 ]; then
     gh release create "$TAG" "${ASSETS[@]}" \
         --repo "$REPO" \
         --title "Ulysses Native $VER" \
-        --notes "写作工具 Ulysses Native $VER：分组树侧栏、可收起侧栏、四套配色与字号、Markdown 实时排版、打字机模式、首次启动引导."
+        --notes "写作工具 Ulysses Native ${VER}：分组树侧栏、可收起侧栏、四套配色与字号、Markdown 实时排版、打字机模式、首次启动引导."
     echo "==> 已发布：https://github.com/$REPO/releases/tag/$TAG"
 fi
