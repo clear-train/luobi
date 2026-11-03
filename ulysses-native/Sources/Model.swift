@@ -27,6 +27,7 @@ struct DocState: Codable {
     var folders: [Folder] = []
     var sidebarVisible: Bool = true
     var fontSize: Double = 17
+    var seenGuide: Bool = false     // 首次启动自动弹一次使用指南
 
     init(sheets: [Sheet], activeId: String) {
         self.sheets = sheets
@@ -34,7 +35,7 @@ struct DocState: Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case sheets, activeId, typewriter, markdown, theme, goal, folders, sidebarVisible, fontSize
+        case sheets, activeId, typewriter, markdown, theme, goal, folders, sidebarVisible, fontSize, seenGuide
     }
 
     // 手写解码：老版本 state.json 缺字段时回落默认值，不丢数据
@@ -49,6 +50,7 @@ struct DocState: Codable {
         folders = try c.decodeIfPresent([Folder].self, forKey: .folders) ?? []
         sidebarVisible = try c.decodeIfPresent(Bool.self, forKey: .sidebarVisible) ?? true
         fontSize = try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? 17
+        seenGuide = try c.decodeIfPresent(Bool.self, forKey: .seenGuide) ?? false
     }
 
     static func initial() -> DocState {

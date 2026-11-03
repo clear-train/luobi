@@ -14,6 +14,8 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var sidebarScroll = NSScrollView()
     var table = NSOutlineView()
     var toolStack = NSStackView()
+    var sidebarFooter = NSStackView()
+    var sidebarToggleButton: NSButton? = nil
     var sidebarWidth: NSLayoutConstraint!
     var titleLeading: NSLayoutConstraint!
     var sidebarViews: [NSView] = []
@@ -141,6 +143,31 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
         buildToolbar()
 
+        // 侧栏底部常驻入口：不靠记快捷键，也不靠翻菜单
+        let footHint = NSTextField(labelWithString: "右键管理 · 拖动归档")
+        footHint.font = NSFont.systemFont(ofSize: 10.5)
+        footHint.textColor = .tertiaryLabelColor
+        footHint.translatesAutoresizingMaskIntoConstraints = false
+        sidebarFooter = NSStackView()
+        sidebarFooter.orientation = .horizontal
+        sidebarFooter.spacing = 6
+        sidebarFooter.alignment = .centerY
+        sidebarFooter.translatesAutoresizingMaskIntoConstraints = false
+        let footGoal = NSButton(title: "写作目标", target: self, action: Selector(("setGoalDialog:")))
+        footGoal.bezelStyle = .texturedRounded
+        footGoal.controlSize = .small
+        footGoal.font = NSFont.systemFont(ofSize: 10.5)
+        footGoal.toolTip = "设定本篇的目标字数，底部会出现进度条"
+        let footGuide = NSButton(title: "功能说明", target: self, action: Selector(("showGuide:")))
+        footGuide.bezelStyle = .texturedRounded
+        footGuide.controlSize = .small
+        footGuide.font = NSFont.systemFont(ofSize: 10.5)
+        footGuide.toolTip = "打开使用指南（也能在「帮助」菜单里找到）"
+        sidebarFooter.addArrangedSubview(footHint)
+        sidebarFooter.addArrangedSubview(footGoal)
+        sidebarFooter.addArrangedSubview(footGuide)
+        sidebarFooter.setHuggingPriority(.defaultLow, for: .horizontal)
+
         // 侧栏与正文之间的一条细分隔线（约束在主约束块里，避免引用尚未入树的视图）
         let divider = NSBox()
         divider.boxType = .separator
@@ -150,6 +177,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         addSubview(plusButton)
         addSubview(folderButton)
         addSubview(sidebarScroll)
+        addSubview(sidebarFooter)
         addSubview(divider)
         addSubview(titleInput)
         addSubview(toolStack)
@@ -165,13 +193,14 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
         NSLayoutConstraint.activate([
             divider.leadingAnchor.constraint(equalTo: sidebarScroll.trailingAnchor, constant: 8),
-            divider.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            divider.topAnchor.constraint(equalTo: topAnchor, constant: 40),
             divider.bottomAnchor.constraint(equalTo: barLabel.topAnchor, constant: -6),
             divider.widthAnchor.constraint(equalToConstant: 1),
 
-            searchField.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            searchField.widthAnchor.constraint(equalToConstant: 150),
+            // 顶部留出 40pt 给窗口交通灯（标题栏已隐藏，内容铺满整窗）
+            searchField.topAnchor.constraint(equalTo: topAnchor, constant: 40),
+            searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            searchField.widthAnchor.constraint(equalToConstant: 148),
             plusButton.topAnchor.constraint(equalTo: searchField.topAnchor),
             plusButton.leadingAnchor.constraint(equalTo: searchField.trailingAnchor, constant: 4),
             plusButton.widthAnchor.constraint(equalToConstant: 28),
@@ -181,14 +210,19 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             folderButton.widthAnchor.constraint(equalToConstant: 28),
             folderButton.heightAnchor.constraint(equalTo: searchField.heightAnchor),
             sidebarScroll.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
-            sidebarScroll.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            sidebarScroll.bottomAnchor.constraint(equalTo: barLabel.topAnchor, constant: -6),
+            sidebarScroll.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            sidebarScroll.bottomAnchor.constraint(equalTo: sidebarFooter.topAnchor, constant: -6),
 
-            titleInput.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            sidebarFooter.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            sidebarFooter.trailingAnchor.constraint(equalTo: sidebarScroll.trailingAnchor),
+            sidebarFooter.bottomAnchor.constraint(equalTo: barLabel.topAnchor, constant: -6),
+            sidebarFooter.heightAnchor.constraint(equalToConstant: 22),
+
+            titleInput.topAnchor.constraint(equalTo: topAnchor, constant: 40),
             titleInput.trailingAnchor.constraint(equalTo: toolStack.leadingAnchor, constant: -12),
 
-            toolStack.topAnchor.constraint(equalTo: topAnchor, constant: 14),
-            toolStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            toolStack.topAnchor.constraint(equalTo: topAnchor, constant: 42),
+            toolStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
             toolStack.heightAnchor.constraint(equalToConstant: 24),
 
             scrollView.topAnchor.constraint(equalTo: titleInput.bottomAnchor, constant: 6),
@@ -205,7 +239,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         sidebarWidth.isActive = true
         titleLeading = titleInput.leadingAnchor.constraint(equalTo: sidebarScroll.trailingAnchor, constant: 20)
         titleLeading.isActive = true
-        sidebarViews = [searchField, plusButton, folderButton, sidebarScroll, divider]
+        sidebarViews = [searchField, plusButton, folderButton, sidebarScroll, sidebarFooter, divider]
         applySidebarVisibility(animated: false)
 
         applyMarkdownStyling()
@@ -224,29 +258,43 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     private func buildToolbar() {
         let themeSel = responds(to: Selector(("showThemePanel:"))) ? "showThemePanel:" : "toggleTheme:"
-        let specs: [(String, String)] = [
-            ("＋ 文稿", "addSheet:"),
-            ("▤ 分组", "addFolder:"),
-            ("侧栏", "toggleSidebar:"),
-            ("导入", "importMDFiles:"),
-            ("导出", "exportActiveSheet:"),
-            ("打字机", "toggleTypewriter:"),
-            ("排版", "toggleMarkdown:"),
-            ("外观", themeSel),
-            ("目标", "setGoalDialog:"),
-            ("指南", "showGuide:"),
+        // 分组排布：文稿 → 文件 → 写作 → 外观/帮助，中间用细线隔开，
+        // 每个按钮都带 tooltip，不需要背快捷键。
+        let groups: [[(String, String, String)]] = [
+            [("＋ 新建文稿", "addSheet:", "新建一篇文稿"),
+             ("▤ 新建分组", "addFolder:", "新建一个分组（文件夹），文稿可以拖进去")],
+            [("导入", "importMDFiles:", "从磁盘导入 Markdown 文件"),
+             ("导出", "exportActiveSheet:", "把当前这篇导出为 Markdown")],
+            [("侧栏", "toggleSidebar:", "收起或展开左侧文稿树"),
+             ("打字机", "toggleTypewriter:", "光标所在行始终停在屏幕中间，眼睛不用上下找"),
+             ("排版", "toggleMarkdown:", "按 Markdown 语法实时排版标题、加粗与引用")],
+            [("外观", themeSel, "切换纸色、深浅与正文字号")],
+            [("指南", "showGuide:", "功能说明与使用指南")],
         ]
         toolStack = NSStackView()
         toolStack.orientation = .horizontal
-        toolStack.spacing = 6
+        toolStack.spacing = 5
+        toolStack.setHuggingPriority(.required, for: .horizontal)
         toolStack.translatesAutoresizingMaskIntoConstraints = false
-        for (title, sel) in specs {
-            let b = NSButton(title: title, target: self, action: Selector((sel)))
-            b.bezelStyle = .texturedRounded
-            b.controlSize = .small
-            b.font = NSFont.systemFont(ofSize: 11)
-            b.isBordered = true
-            toolStack.addArrangedSubview(b)
+        for (gi, group) in groups.enumerated() {
+            if gi > 0 {
+                let sep = NSBox()
+                sep.boxType = .separator
+                sep.translatesAutoresizingMaskIntoConstraints = false
+                sep.widthAnchor.constraint(equalToConstant: 1).isActive = true
+                sep.heightAnchor.constraint(equalToConstant: 16).isActive = true
+                toolStack.addArrangedSubview(sep)
+            }
+            for (title, sel, tip) in group {
+                let b = NSButton(title: title, target: self, action: Selector((sel)))
+                b.bezelStyle = .texturedRounded
+                b.controlSize = .small
+                b.font = NSFont.systemFont(ofSize: 11)
+                b.isBordered = true
+                b.toolTip = tip
+                if sel == "toggleSidebar:" { sidebarToggleButton = b }
+                toolStack.addArrangedSubview(b)
+            }
         }
     }
 
@@ -318,7 +366,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let count = n == 0 ? "尚无字数" : "约 \(n) 字"
         var s = "Ulysses Native · \(doc.sheets.count) 篇 · " + count
         if let saved = saved {
-            s += " · " + (saved ? "已自动保存" : "保存失败")
+            s += " · " + (saved ? "已自动保存" : "保存失败：请把 App 拖进「应用程序」后从访达打开")
         }
         barLabel.stringValue = s
         // 仪表模块接上后刷新进度
@@ -373,6 +421,8 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let show = doc.sidebarVisible
         for v in sidebarViews { v.isHidden = !show }
         sidebarWidth.constant = show ? 236 : 0
+        sidebarToggleButton?.title = show ? "收起侧栏" : "展开侧栏"
+        sidebarToggleButton?.toolTip = show ? "把左侧文稿树收起来，专心写正文" : "重新展开左侧文稿树"
         if animated, let w = window {
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = 0.16

@@ -9,10 +9,31 @@ let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1080, height: 680),
                    backing: .buffered, defer: false)
 win.title = "Ulysses Native"
 win.minSize = NSSize(width: 780, height: 460)
+
+// 标题栏做成「纸张的延续」：无边框、无标题、透明，整窗就是一张羊皮纸，
+// 避免顶部那条浅色/带色横条和内容区割裂。
+win.styleMask.insert(.fullSizeContentView)
+win.titlebarAppearsTransparent = true
+win.titleVisibility = .hidden
+win.isMovableByWindowBackground = true
+win.titlebarSeparatorStyle = .none
+win.backgroundColor = NSColor(srgbRed: 0.965, green: 0.949, blue: 0.906, alpha: 1)
+
 win.contentView = EditorRoot()
 win.center()
 win.setFrameAutosaveName("UlyssesNativeMain")
 win.makeKeyAndOrderFront(nil)
+
+// 首次启动：自动弹一次使用指南（把 seenGuide 写回，之后不再打扰）
+if let root = win.contentView as? EditorRoot, !root.doc.seenGuide {
+    root.doc.seenGuide = true
+    root.persistNow()
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+        if root.responds(to: Selector(("showGuide:"))) {
+            root.perform(Selector(("showGuide:")), with: nil)
+        }
+    }
+}
 
 let main = NSMenu()
 for (name, items) in [
@@ -52,7 +73,7 @@ for (name, items) in [
         NSMenuItem(title: "关闭", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"),
     ]),
     ("帮助", [
-        NSMenuItem(title: "使用指南", action: Selector(("showGuide:")), keyEquivalent: "/"),
+        NSMenuItem(title: "功能说明与使用指南", action: Selector(("showGuide:")), keyEquivalent: ""),
         NSMenuItem(title: "打开文稿库文件夹", action: Selector(("openVaultFolder:")), keyEquivalent: ""),
     ]),
 ] as [(String, [NSMenuItem])] {
