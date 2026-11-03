@@ -88,6 +88,7 @@ struct DocState: Codable {
     var dailyBase: [String: Int] = [:] // "2026-11-03" -> 当天开工时全书字数
     var dailyDone: [String: Int] = [:] // "2026-11-03" -> 当天最多写到过多少字
     var writeSeconds: [String: Int] = [:] // "2026-11-03" -> 当天真正在写的秒数
+    var pomodoroDone: [String: Int] = [:] // "2026-11-03" -> 当天完成的番茄数
 
     init(sheets: [Sheet], activeId: String) {
         self.sheets = sheets
@@ -95,7 +96,7 @@ struct DocState: Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case sheets, activeId, typewriter, markdown, theme, goal, folders, sidebarVisible, fontSize, seenGuide, indentParagraphs, dailyGoal, dailyBase, dailyDone, writeSeconds
+        case sheets, activeId, typewriter, markdown, theme, goal, folders, sidebarVisible, fontSize, seenGuide, indentParagraphs, dailyGoal, dailyBase, dailyDone, writeSeconds, pomodoroDone
     }
 
     // 手写解码：老版本 state.json 缺字段时回落默认值，不丢数据
@@ -116,6 +117,7 @@ struct DocState: Codable {
         dailyDone = try c.decodeIfPresent([String: Int].self, forKey: .dailyDone) ?? [:]
         writeSeconds = try c.decodeIfPresent([String: Int].self, forKey: .writeSeconds) ?? [:]
         seenGuide = try c.decodeIfPresent(Bool.self, forKey: .seenGuide) ?? false
+        pomodoroDone = try c.decodeIfPresent([String: Int].self, forKey: .pomodoroDone) ?? [:]
     }
 
     static func initial() -> DocState {
@@ -256,6 +258,18 @@ extension DocState {
     }
 
     var todaySeconds: Int { writeSeconds[dayKey()] ?? 0 }
+
+    /// 完成一个番茄（只记"专注"结束，休息不算）
+    mutating func addPomodoro() {
+        let key = dayKey()
+        pomodoroDone[key] = (pomodoroDone[key] ?? 0) + 1
+        if pomodoroDone.count > 200 {
+            let keep = pomodoroDone.keys.sorted().suffix(180)
+            pomodoroDone = pomodoroDone.filter { keep.contains($0.key) }
+        }
+    }
+
+    var todayPomodoros: Int { pomodoroDone[dayKey()] ?? 0 }
 
     /// 最近 N 天的平均写作时长（秒），只除以"有记录的天数"，不让空白天稀释
     func averageWriteSeconds(days: Int = 7) -> Int {

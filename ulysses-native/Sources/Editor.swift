@@ -11,6 +11,12 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// 启动时若自动从备份恢复过，或者刚手动备份过，在这条状态栏里说一句
     var startupNote: String? = Vault.lastRecoveryNote
     var focusMode = false
+
+    // 番茄钟（实现见 Pomodoro.swift）
+    var pomoEndAt: Date?
+    var pomoIsBreak = false
+    var pomoTimer: Timer?
+    var pomoButton: NSButton?
     var lastActivityAt = Date()
     var sessionTimer: Timer?
     var sessionAccrued = 0
@@ -123,6 +129,8 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         sidebarScroll.translatesAutoresizingMaskIntoConstraints = false
 
         // --- 编辑器 ---
+        titleInput.lineBreakMode = .byTruncatingTail
+        titleInput.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         titleInput.stringValue = doc.sheet(id: doc.activeId)?.title ?? ""
         titleInput.isBordered = false
         titleInput.drawsBackground = false
@@ -310,17 +318,16 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // 分组排布：文稿 → 文件 → 写作 → 外观/帮助，中间用细线隔开，
         // 每个按钮都带 tooltip，不需要背快捷键。
         let groups: [[(String, String, String)]] = [
-            [("＋ 新建文稿", "addSheet:", "新建一篇文稿"),
-             ("▤ 新建分组", "addFolder:", "新建一个分组（文件夹），文稿可以拖进去")],
-            [("导入", "importMDFiles:", "从磁盘导入 Markdown 文件"),
-             ("导出", "exportActiveSheet:", "把当前这篇导出为 Markdown"),
-             ("成书", "exportBook:", "把分组里的稿子按侧栏顺序拼成整本（网页或 Markdown）")],
+            [("＋新建", "addSheet:", "新建一篇文稿"),
+             ("▤分组", "addFolder:", "新建一个分组（文件夹），文稿可以拖进去")],
+            [("▾ 文件", "__fileMenu__", "导入 / 导出 / 成书")],
             [("侧栏", "toggleSidebar:", "收起或展开左侧文稿树"),
              ("打字机", "toggleTypewriter:", "光标所在行始终停在屏幕中间，眼睛不用上下找"),
              ("排版", "toggleMarkdown:", "按 Markdown 语法实时排版标题、加粗与引用"),
              ("缩进", "toggleIndent:", "每段首行缩进两字（中文长篇的版面习惯）"),
              ("专注", "toggleFocus:", "收起侧栏与工具栏，只留正文（Esc 退出）")],
-            [("外观", themeSel, "切换纸色、深浅与正文字号")],
+            [("🍅", "togglePomodoro:", "番茄钟：25 分钟专注 + 5 分钟休息"),
+             ("外观", themeSel, "切换纸色、深浅与正文字号")],
             [("指南", "showGuide:", "功能说明与使用指南")],
         ]
         toolStack = NSStackView()
@@ -338,6 +345,29 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 toolStack.addArrangedSubview(sep)
             }
             for (title, sel, tip) in group {
+                if sel == "__fileMenu__" {
+                    // 导入/导出/成书 是"偶尔用一次"的动作，塞成下拉能省下一条标题的宽度
+                    let pop = NSPopUpButton(frame: .zero, pullsDown: true)
+                    pop.bezelStyle = .texturedRounded
+                    pop.controlSize = .small
+                    pop.font = NSFont.systemFont(ofSize: 11)
+                    pop.toolTip = "导入、导出本篇、导出整本"
+                    pop.addItem(withTitle: "▾ 文件")
+                    func add(_ t: String, _ sel: String) {
+                        let it = NSMenuItem(title: t, action: Selector(sel), keyEquivalent: "")
+                        it.target = self
+                        pop.menu?.addItem(it)
+                    }
+                    add("导入文稿…", "importMDFiles:")
+                    add("导出本篇…", "exportActiveSheet:")
+                    add("成书：导出整本…", "exportBook:")
+                    pop.menu?.addItem(.separator())
+                    add("本篇历史版本…", "showHistoryPanel:")
+                    pop.menu?.addItem(.separator())
+                    add("查找与替换…", "showReplacePanel:")
+                    toolStack.addArrangedSubview(pop)
+                    continue
+                }
                 let b = NSButton(title: title, target: self, action: Selector((sel)))
                 b.bezelStyle = .texturedRounded
                 b.controlSize = .small
@@ -345,6 +375,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 b.isBordered = true
                 b.toolTip = tip
                 if sel == "toggleSidebar:" { sidebarToggleButton = b }
+                if sel == "togglePomodoro:" { pomoButton = b }
                 toolStack.addArrangedSubview(b)
             }
         }

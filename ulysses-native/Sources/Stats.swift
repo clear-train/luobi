@@ -135,7 +135,7 @@ extension EditorRoot {
 
         // 时间维度：字数是结果，时长才是习惯
         func minutes(_ sec: Int) -> String { sec < 60 ? "不到 1 分钟" : "\(sec / 60) 分钟" }
-        _ = label("今天写了 \(minutes(doc.todaySeconds)) · 近 7 天平均 \(minutes(doc.averageWriteSeconds(days: 7)))（只统计真正在打字的时间）",
+        _ = label("今天写了 \(minutes(doc.todaySeconds)) · 近 7 天平均 \(minutes(doc.averageWriteSeconds(days: 7)))（只统计真正在打字的时间）" + (doc.todayPomodoros > 0 ? " · 今天完成 \(doc.todayPomodoros) 个番茄" : ""),
                   12, .regular, preset.text.withAlphaComponent(0.62), y: 292, h: 16)
 
         let chart = StatsChartView(frame: NSRect(x: 20, y: 58, width: 600, height: 240))
