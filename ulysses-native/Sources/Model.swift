@@ -140,6 +140,7 @@ struct DocState: Codable {
 - 写作目标：侧栏左下角点「写作目标」，设每天多少字；底部细进度条和状态栏会跟着涨，达标变绿。
 - 排序：拖动文稿可以调顺序（也能拖进分组）；不想拖就右键「上移一位 / 下移一位」。
 - 人物卡片：选中正文里的名字 → 右键 → 建人物卡；视图菜单「人物一览」能看全部人物。
+- 出场索引：卡片弹窗里点「看出场章节」，能看到这个人出现在哪几章、各几次，点一下直接跳过去。
 - 新建人物卡：右键 → 新建人物卡，填姓名/关系/外貌/口头禅；正文里按住 ⌘ 点人名就能看这张卡。
 - 统计：侧栏左下角点「统计」，看最近 30 天每天写了多少字、连续写了多久。
 - 搜索：左上角搜索框搜**标题和正文**，结果显示命中片段，点一条直接跳到命中处。
@@ -266,6 +267,45 @@ extension DocState {
             .filter { !$0.isEmpty }
             .sorted { $0.count > $1.count }
         return names.filter { text.contains($0) }
+    }
+}
+
+/// 一个人名在某一章里出现过几次（出场索引的一行）
+struct CardMention {
+    let sheetId: String
+    let title: String
+    let count: Int
+    let firstRange: NSRange
+}
+
+extension DocState {
+    /// 反向链接：这个名字在哪些正文里出现过、各出现几次。
+    /// 卡片自己的备注不算「出场」，所以只扫 card == nil 的文稿。
+    func mentions(of name: String) -> [CardMention] {
+        let key = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return [] }
+        var out: [CardMention] = []
+        for s in sheets where s.card == nil {
+            let ns = s.content as NSString
+            guard ns.length > 0 else { continue }
+            var count = 0
+            var first = NSNotFound
+            var search = NSRange(location: 0, length: ns.length)
+            while search.length > 0 {
+                let r = ns.range(of: key, options: [], range: search)
+                if r.location == NSNotFound { break }
+                if first == NSNotFound { first = r.location }
+                count += 1
+                let next = r.location + max(1, r.length)
+                if next >= ns.length { break }
+                search = NSRange(location: next, length: ns.length - next)
+            }
+            if count > 0 {
+                out.append(CardMention(sheetId: s.id, title: s.title, count: count,
+                                       firstRange: NSRange(location: first, length: key.count)))
+            }
+        }
+        return out
     }
 }
 

@@ -211,6 +211,20 @@ extension EditorRoot {
         if !card.relation.isEmpty { _ = line("关系：" + card.relation, size: 12, weight: .regular, alpha: 0.75) }
         if !card.appearance.isEmpty { _ = line("外貌：" + card.appearance, size: 12, weight: .regular, alpha: 0.75) }
         if !card.catchphrase.isEmpty { _ = line("「" + card.catchphrase + "」", size: 12.5, weight: .regular, alpha: 0.9) }
+
+        let name = card.name.isEmpty ? "" : card.name
+        let mentions = doc.mentions(of: name)
+        if !mentions.isEmpty {
+            _ = line("出场 \(mentions.count) 章 · 共 \(mentions.reduce(0) { $0 + $1.count }) 次", size: 11.5, weight: .regular, alpha: 0.55)
+            let btn = NSButton(title: "看出场章节", target: self, action: #selector(showMentionsFromPopover(_:)))
+            btn.bezelStyle = .texturedRounded
+            btn.controlSize = .small
+            btn.font = NSFont.systemFont(ofSize: 11)
+            btn.identifier = NSUserInterfaceItemIdentifier(name)
+            btn.frame = NSRect(x: 14, y: y, width: 110, height: 22)
+            box.addSubview(btn)
+            y += 28
+        }
         box.frame.size.height = max(46, y + 6)
 
         let vc = NSViewController()
@@ -362,6 +376,109 @@ extension EditorRoot {
         container.addSubview(stack)
         scroll.documentView = container
         scroll.backgroundColor = preset.bg
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -16),
+            container.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            container.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            container.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            container.heightAnchor.constraint(greaterThanOrEqualTo: scroll.contentView.heightAnchor),
+        ])
+        panel.contentView = scroll
+
+        if let win = window {
+            win.beginSheet(panel) { _ in }
+        } else {
+            panel.makeKeyAndOrderFront(nil)
+        }
+    }
+}
+
+
+// MARK: - 出场索引（人物的反向链接）
+
+extension EditorRoot {
+
+    @objc func showMentionsFromPopover(_ sender: Any?) {
+        guard let name = (sender as? NSButton)?.identifier?.rawValue else { return }
+        showMentions(named: name)
+    }
+
+    @objc func showMentionsForContextCard(_ sender: Any?) {
+        guard let it = contextSideItem(), let s = it.sheet, let c = s.card else { return }
+        showMentions(named: c.name.isEmpty ? s.title : c.name)
+    }
+
+    /// 「这个名字在哪些章节出现过」——点一行就跳到那一处
+    func showMentions(named raw: String) {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let list = doc.mentions(of: name)
+        let preset = ThemePresets.preset(doc.theme)
+
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 440),
+                            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        panel.title = "\(name) · 出场章节"
+        panel.isReleasedWhenClosed = false
+
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.drawsBackground = false
+        scroll.backgroundColor = preset.bg
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 4
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let head = NSTextField(labelWithString: list.isEmpty
+                               ? "正文里还没有出现过「\(name)」。"
+                               : "共 \(list.count) 章 / \(list.reduce(0) { $0 + $1.count }) 次，点一行跳到那一处：")
+        head.font = NSFont.systemFont(ofSize: 12)
+        head.textColor = preset.text.withAlphaComponent(0.6)
+        stack.addArrangedSubview(head)
+
+        for m in list {
+            let row = CardRowView()
+            row.wantsLayer = true
+            row.translatesAutoresizingMaskIntoConstraints = false
+            row.onClick = { [weak self, weak panel] in
+                guard let self = self else { return }
+                self.switchTo(m.sheetId)
+                self.jump(to: m.firstRange)
+                panel?.close()
+            }
+            let t = NSTextField(labelWithString: m.title.isEmpty ? "未命名" : m.title)
+            t.font = NSFont.systemFont(ofSize: 13)
+            t.textColor = preset.text
+            t.lineBreakMode = .byTruncatingTail
+            t.translatesAutoresizingMaskIntoConstraints = false
+            let n = NSTextField(labelWithString: "\(m.count) 次")
+            n.font = NSFont.systemFont(ofSize: 11.5)
+            n.textColor = preset.text.withAlphaComponent(0.55)
+            n.translatesAutoresizingMaskIntoConstraints = false
+            row.addSubview(t); row.addSubview(n)
+            NSLayoutConstraint.activate([
+                row.widthAnchor.constraint(equalToConstant: 480),
+                row.heightAnchor.constraint(equalToConstant: 30),
+                t.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 6),
+                t.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+                t.trailingAnchor.constraint(lessThanOrEqualTo: n.leadingAnchor, constant: -10),
+                n.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -6),
+                n.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            ])
+            stack.addArrangedSubview(row)
+        }
+
+        let container = FlippedStackView()
+        container.wantsLayer = true
+        container.layer?.backgroundColor = preset.bg.cgColor
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(stack)
+        scroll.documentView = container
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
             stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),

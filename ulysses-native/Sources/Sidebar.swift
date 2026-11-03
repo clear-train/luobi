@@ -477,6 +477,7 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
         m.addItem(.separator())
         m.addItem(withTitle: "上移一位", action: #selector(moveSheetUp(_:)), keyEquivalent: "")
         m.addItem(withTitle: "下移一位", action: #selector(moveSheetDown(_:)), keyEquivalent: "")
+        m.addItem(withTitle: "出场章节…", action: #selector(showMentionsForContextCard(_:)), keyEquivalent: "")
         m.addItem(withTitle: "编辑卡片信息…", action: #selector(editCardMenu(_:)), keyEquivalent: "")
         m.addItem(withTitle: "重命名…", action: #selector(renameSelected(_:)), keyEquivalent: "")
         m.addItem(withTitle: "删除", action: #selector(deleteSelected(_:)), keyEquivalent: "")
@@ -492,7 +493,7 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
             switch item.title {
             case "在此分组新建文稿":
                 item.isHidden = !isFolder
-            case "编辑卡片信息…":
+            case "编辑卡片信息…", "出场章节…":
                 item.isHidden = (it?.sheet?.card == nil)
             case "移动到分组":
                 item.isHidden = it?.sheet == nil
