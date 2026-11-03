@@ -360,13 +360,79 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
                      childIndex index: Int) -> Bool {
         guard let str = info.draggingPasteboard.string(forType: NSPasteboard.PasteboardType("com.ulysses.sheet")),
               let i = doc.sheets.firstIndex(where: { $0.id == str }) else { return false }
+        _ = i
+        // 落点决定两件事：归到哪个分组 + 插在谁前面
         var target: String? = nil
-        if let it = item as? SideItem, let f = it.folder { target = f.id }
-        doc.sheets[i].folderId = target
+        var anchor: String? = nil
+        if let it = item as? SideItem {
+            if let f = it.folder {
+                target = f.id
+                // 落在分组内部第 index 个孩子之前；只把文稿当作锚点
+                let kids = childItems(of: it)
+                if index < kids.count, let s = kids[index].sheet { anchor = s.id }
+            } else if let s = it.sheet {
+                target = s.folderId
+                anchor = s.id
+            }
+        } else {
+            // 拖到空白处 = 放到最外层末尾
+            let roots = rootItems()
+            if index < roots.count, let s = roots[index].sheet { anchor = s.id }
+        }
+        reorder(str, toFolder: target, before: anchor)
         persistNow()
         refreshTable()
         if let f = target { expandFolder(f) }
         return true
+    }
+
+    /// 把一篇文稿挪到某分组内、某篇之前（anchor 为 nil 则放到该组末尾）。
+    /// 顺序就是 doc.sheets 里的顺序，所以这里直接重排整个数组。
+    func reorder(_ draggedId: String, toFolder folderId: String?, before anchorId: String?) {
+        guard let di = doc.sheets.firstIndex(where: { $0.id == draggedId }) else { return }
+        doc.sheets[di].folderId = folderId
+
+        var members = doc.sheets.filter { $0.folderId == folderId }.map { $0.id }
+        members.removeAll { $0 == draggedId }
+        let insertAt: Int
+        if let a = anchorId, let k = members.firstIndex(of: a) {
+            insertAt = k
+        } else {
+            insertAt = members.count
+        }
+        members.insert(draggedId, at: min(insertAt, members.count))
+
+        var queue = members
+        var out: [Sheet] = []
+        for s in doc.sheets {
+            if s.folderId == folderId {
+                guard !queue.isEmpty else { continue }
+                let id = queue.removeFirst()
+                if let src = doc.sheets.first(where: { $0.id == id }) { out.append(src) }
+            } else {
+                out.append(s)
+            }
+        }
+        doc.sheets = out
+    }
+
+    /// 右键「上移 / 下移」：不想拖的时候也能调顺序
+    @objc func moveSheetUp(_ sender: Any?) { nudgeSelected(by: -1) }
+    @objc func moveSheetDown(_ sender: Any?) { nudgeSelected(by: 1) }
+
+    private func nudgeSelected(by delta: Int) {
+        guard let it = contextSideItem(), let s = it.sheet,
+              let idx = doc.sheets.firstIndex(where: { $0.id == s.id }) else { return }
+        let siblings = doc.sheets.enumerated().filter { $0.element.folderId == s.folderId }.map { $0.offset }
+        guard let pos = siblings.firstIndex(of: idx) else { return }
+        let targetPos = pos + delta
+        guard targetPos >= 0, targetPos < siblings.count else { return }
+        let other = siblings[targetPos]
+        // 直接在数组里交换两篇的位置
+        doc.sheets.swapAt(idx, other)
+        persistNow()
+        refreshTable()
+        if let r = row(forID: s.id) { table.selectRowIndexes(IndexSet(integer: r), byExtendingSelection: false) }
     }
 
     private func expandFolder(_ id: String) {
@@ -389,6 +455,8 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
         move.submenu = NSMenu()
         m.addItem(move)
         m.addItem(.separator())
+        m.addItem(withTitle: "上移一位", action: #selector(moveSheetUp(_:)), keyEquivalent: "")
+        m.addItem(withTitle: "下移一位", action: #selector(moveSheetDown(_:)), keyEquivalent: "")
         m.addItem(withTitle: "重命名…", action: #selector(renameSelected(_:)), keyEquivalent: "")
         m.addItem(withTitle: "删除", action: #selector(deleteSelected(_:)), keyEquivalent: "")
         for it in m.items where it.action != nil { it.target = self }
@@ -420,6 +488,8 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
                         sub.addItem(mi)
                     }
                 }
+            case "上移一位", "下移一位":
+                item.isHidden = (it?.sheet == nil)
             case "重命名…", "删除":
                 item.isHidden = (it == nil)
             default:
