@@ -7,6 +7,7 @@ struct DocState: Codable {
     var title: String = "未命名"
     var content: String = "第一次打开。\n\n在下面开始写你的第一章吧。"
     var typewriter: Bool = true
+    var markdown: Bool = true
 }
 
 enum Vault {
@@ -102,7 +103,8 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
         textView = NSTextView()
-        textView.isRichText = false
+        textView.isRichText = true        // 要挂自定义属性（粗体/字号），只能走富文本
+        textView.usesFontPanel = false    // 但不让用户手动改格式，排版权在我们手里
         textView.string = doc.content
         textView.font = NSFont.systemFont(ofSize: 17)
         textView.delegate = self
@@ -154,8 +156,95 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     // MARK: 变化 → 保存（800ms 防抖）
 
+    private var styleTimer: Timer? = nil
+
+    // 100ms 防抖的排版：比保存更频繁（所见即所得要跟手），但不逐键跑
+    private func restyleSoon() {
+        styleTimer?.invalidate()
+        styleTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
+            self?.applyMarkdownStyling()
+        }
+    }
+
+    // 底座样式和档位表：以后想调字号/颜色只改这里
+    private let baseFont = NSFont.systemFont(ofSize: 17)
+    private let headingFonts: [NSFont] = [
+        NSFont.boldSystemFont(ofSize: 26),
+        NSFont.boldSystemFont(ofSize: 23),
+        NSFont.boldSystemFont(ofSize: 20),
+        NSFont.boldSystemFont(ofSize: 18),
+        NSFont.boldSystemFont(ofSize: 17),
+        NSFont.boldSystemFont(ofSize: 16),
+    ]
+
+    private func applyMarkdownStyling() {
+        let storage = textView.textStorage!
+        let full = NSRange(location: 0, length: storage.length)
+        guard doc.markdown else {
+            storage.setAttributes([.font: baseFont], range: full)
+            return
+        }
+        storage.setAttributes([
+            .font: baseFont,
+            .foregroundColor: NSColor.labelColor,
+        ], range: full)
+
+        let ns = storage.string as NSString
+        if full.length == 0 { return }
+        ns.enumerateSubstrings(in: full, options: [.byLines]) { [weak self] line, sub, enclosing, _ in
+            guard let self = self, let line = line else { return }
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return }
+
+            // # 标题：数井号定档位
+            let hashes = trimmed.prefix { $0 == "#" }
+            let hashCount = hashes.count
+            if hashCount >= 1 && hashCount <= 6 {
+                let rest = trimmed.dropFirst(hashCount)
+                if rest.isEmpty || rest.hasPrefix(" ") || rest.hasPrefix("\t") {
+                    let para = NSMutableParagraphStyle()
+                    para.paragraphSpacing = 8
+                    storage.addAttributes([
+                        .font: self.headingFonts[hashCount - 1],
+                        .paragraphStyle: para,
+                    ], range: enclosing)
+                    return
+                }
+            }
+
+            // **加粗**：成对找
+            var searchStart = line.startIndex
+            var opens: [String.Index] = []
+            while let first = line.range(of: "**", range: searchStart..<line.endIndex) {
+                if let close = line.range(of: "**", range: first.upperBound..<line.endIndex) {
+                    let inner = first.upperBound..<close.lowerBound
+                    let rangeInDoc = NSRange(inner, in: line)
+                    let shifted = NSRange(location: enclosing.location + rangeInDoc.location,
+                                          length: rangeInDoc.length)
+                    if shifted.length > 0 {
+                        storage.addAttributes([.font: NSFont.boldSystemFont(ofSize: 17)],
+                                              range: shifted)
+                    }
+                    searchStart = close.upperBound
+                } else {
+                    break
+                }
+            }
+
+            // > 引用
+            if trimmed.hasPrefix(">") {
+                storage.addAttributes([
+                    .font: NSFontManager.shared.convert(baseFont, toHaveTrait: [.italicFontMask]),
+                    .foregroundColor: NSColor.secondaryLabelColor,
+                ], range: enclosing)
+                return
+            }
+        }
+    }
+
     private func markDirty() {
         refreshBar()
+        restyleSoon()
         saveTimer?.invalidate()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: false) { [weak self] _ in
             self?.persistNow()
@@ -202,6 +291,12 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         persistNow()
     }
 
+    @objc func toggleMarkdown(_ sender: Any?) {
+        doc.markdown.toggle()
+        applyMarkdownStyling()
+        persistNow()
+    }
+
     @objc func saveNow(_ sender: Any?) {
         persistNow()
     }
@@ -233,6 +328,11 @@ for (name, items) in [
     ("视图", [
         {
             let i = NSMenuItem(title: "打字机居中", action: Selector(("toggleTypewriter:")), keyEquivalent: "t")
+            i.keyEquivalentModifierMask = [.command, .option]
+            return i
+        }(),
+        {
+            let i = NSMenuItem(title: "Markdown 排版", action: Selector(("toggleMarkdown:")), keyEquivalent: "m")
             i.keyEquivalentModifierMask = [.command, .option]
             return i
         }(),
