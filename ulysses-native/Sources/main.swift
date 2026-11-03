@@ -69,6 +69,7 @@ for (name, items) in [
         NSMenuItem(title: "显示/收起侧栏", action: Selector(("toggleSidebar:")), keyEquivalent: ""),
         NSMenuItem(title: "新建分组", action: Selector(("addFolder:")), keyEquivalent: ""),
         { let s = NSMenuItem.separator(); return s }(),
+        NSMenuItem(title: "大纲板…", action: Selector(("showBoard:")), keyEquivalent: ""),
         NSMenuItem(title: "阅读模式（← → 翻篇）", action: Selector(("toggleReading:")), keyEquivalent: ""),
         NSMenuItem(title: "打字机居中", action: Selector(("toggleTypewriter:")), keyEquivalent: ""),
         NSMenuItem(title: "Markdown 排版", action: Selector(("toggleMarkdown:")), keyEquivalent: ""),
