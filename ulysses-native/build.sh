@@ -24,7 +24,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Info.plist "$APP/Contents/Info.plist"
 
 SDKROOT="$SDKROOT_DIR/$CHOSEN" swiftc -O -module-cache-path "$MODULECACHE" \
-    -o "$APP/Contents/MacOS/ulysses-native" main.swift -framework AppKit
+    -o "$APP/Contents/MacOS/ulysses-native" Sources/*.swift -framework AppKit
 
 codesign --force --sign - "$APP" 2>/dev/null || true
 echo "构建完成: $PWD/$APP"
