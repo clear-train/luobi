@@ -1,0 +1,4 @@
+.DS_Store
+ulysses-app/build/
+ulysses-app/.modulecache/
+*.out
