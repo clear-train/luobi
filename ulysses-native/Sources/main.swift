@@ -64,6 +64,8 @@ for (name, items) in [
         NSMenuItem(title: "拷贝", action: #selector(NSText.copy(_:)), keyEquivalent: "c"),
         NSMenuItem(title: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v"),
         NSMenuItem(title: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"),
+        { let s = NSMenuItem.separator(); return s }(),
+        NSMenuItem(title: "查找与替换…", action: Selector(("showReplacePanel:")), keyEquivalent: "f"),
     ]),
     ("视图", [
         NSMenuItem(title: "显示/收起侧栏", action: Selector(("toggleSidebar:")), keyEquivalent: ""),
