@@ -432,6 +432,10 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if doc.dailyGoal > 0 {
             s += " · 今日 \(doc.todayWritten)/\(doc.dailyGoal)"
         }
+        if let cur = doc.sheet(id: doc.activeId), cur.target > 0 {
+            let st = ChapterStatus.of(words: n, target: cur.target)
+            s += " · 本章目标 \(cur.target)（\(st.label)）"
+        }
         if let saved = saved {
             s += " · " + (saved ? "已自动保存" : "保存失败：请把 App 拖进「应用程序」后从访达打开")
         }

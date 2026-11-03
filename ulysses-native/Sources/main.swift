@@ -68,6 +68,7 @@ for (name, items) in [
         NSMenuItem(title: "查找与替换…", action: Selector(("showReplacePanel:")), keyEquivalent: "f"),
         { let s = NSMenuItem.separator(); return s }(),
         NSMenuItem(title: "本篇历史版本…", action: Selector(("showHistoryPanel:")), keyEquivalent: ""),
+        NSMenuItem(title: "设置本章目标…", action: Selector(("setChapterTarget:")), keyEquivalent: ""),
     ]),
     ("视图", [
         NSMenuItem(title: "显示/收起侧栏", action: Selector(("toggleSidebar:")), keyEquivalent: ""),

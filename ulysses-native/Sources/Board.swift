@@ -6,11 +6,36 @@ import AppKit
 // 这里把章节平铺成一堵卡片墙：标题 + 字数 + 开头两句，扫一眼就有全景。
 // 拖动卡片可以重排（跨分组也行），点一下进入那一章。
 
+/// 一章相对目标的处境。写作时最常问自己"这段够不够"，这里给个客观参照
+enum ChapterStatus {
+    case none      // 没设目标
+    case short     // 不到目标的 80%
+    case ok        // 80%–120%
+    case long      // 超过 120%
+
+    var label: String {
+        switch self {
+        case .none: return ""
+        case .short: return "偏短"
+        case .ok: return "刚好"
+        case .long: return "偏长"
+        }
+    }
+
+    static func of(words: Int, target: Int) -> ChapterStatus {
+        guard target > 0 else { return .none }
+        if words < Int(Double(target) * 0.8) { return .short }
+        if words > Int(Double(target) * 1.2) { return .long }
+        return .ok
+    }
+}
+
 struct BoardItem {
     let sheet: Sheet
     let words: Int
     let preview: String
     let folderName: String?
+    var status: ChapterStatus { ChapterStatus.of(words: words, target: sheet.target) }
 }
 
 extension DocState {
@@ -116,6 +141,19 @@ final class BoardView: NSView {
             ]
             (meta as NSString).draw(at: NSPoint(x: r.minX + 12, y: r.minY + 46), withAttributes: ma)
 
+            // 目标与状态（右上角）
+            if item.sheet.target > 0 {
+                let st = item.status
+                let color: NSColor = st == .ok ? NSColor.systemGreen : (st == .short ? NSColor.systemOrange : NSColor.systemRed)
+                let badge = "目标 \(item.sheet.target) · \(st.label)"
+                let ba: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+                    .foregroundColor: color.withAlphaComponent(st == .ok ? 0.85 : 0.9),
+                ]
+                let size = (badge as NSString).size(withAttributes: ba)
+                (badge as NSString).draw(at: NSPoint(x: r.maxX - 12 - size.width, y: r.minY + 46), withAttributes: ba)
+            }
+
             // 开头两句
             let pa: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: 11),
@@ -214,7 +252,10 @@ extension EditorRoot {
             board.frame = NSRect(x: 0, y: 0, width: w, height: max(h, scroll.contentView.bounds.height))
             board.needsDisplay = true
             let total = items.reduce(0) { $0 + $1.words }
-            header.stringValue = "共 \(items.count) 章 · 约 \(total) 字　（拖动卡片可重排，点一下进入那一篇）"
+            let off = items.filter { $0.status == .short || $0.status == .long }.count
+            let withTarget = items.filter { $0.sheet.target > 0 }.count
+            let goalNote = withTarget == 0 ? "" : (off == 0 ? " · 全部在目标区间" : " · \(off) 章偏离目标")
+            header.stringValue = "共 \(items.count) 章 · 约 \(total) 字\(goalNote)　（拖动卡片可重排，点一下进入那一篇）"
         }
 
         board.onOpen = { [weak self, weak panel] id in
@@ -267,5 +308,34 @@ extension EditorRoot {
         reorder(moving.id, toFolder: targetFolder, before: anchor)
         persistNow()
         return true
+    }
+}
+
+extension EditorRoot {
+
+    /// 给当前这一篇（或右键点中的那一篇）设目标字数
+    @objc func setChapterTarget(_ sender: Any?) {
+        guard let sheet = contextSideItem()?.sheet ?? doc.sheet(id: doc.activeId) else { return }
+        let alert = NSAlert()
+        alert.messageText = "「\(sheet.title.isEmpty ? "未命名" : sheet.title)」的目标字数"
+        alert.informativeText = "填 0 表示不设目标。\n设了以后：状态栏显示本章进度，大纲板上标「偏短 / 刚好 / 偏长」（以 ±20% 为界）。"
+        alert.addButton(withTitle: "保存")
+        alert.addButton(withTitle: "取消")
+
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        field.stringValue = "\(sheet.target)"
+        field.alignment = .right
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let v = max(0, min(500_000, Int(field.stringValue.trimmingCharacters(in: .whitespaces)) ?? sheet.target))
+        if let i = doc.sheets.firstIndex(where: { $0.id == sheet.id }) {
+            doc.sheets[i].target = v
+        }
+        persistNow()
+        refreshBar()
+        startupNote = v == 0 ? "已取消本章目标" : "本章目标：\(v) 字"
+        refreshBar()
     }
 }

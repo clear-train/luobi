@@ -42,19 +42,21 @@ struct Sheet: Codable {
     var updatedAt: Double = 0
     var folderId: String? = nil   // nil = 放在最外层
     var card: CardData? = nil     // 非空 = 这是一张人物/设定卡片
+    var target: Int = 0           // 这一章的目标字数，0=不设
 
     enum CodingKeys: String, CodingKey {
-        case id, title, content, updatedAt, folderId, card
+        case id, title, content, updatedAt, folderId, card, target
     }
 
     init(id: String, title: String, content: String = "",
-         updatedAt: Double = 0, folderId: String? = nil, card: CardData? = nil) {
+         updatedAt: Double = 0, folderId: String? = nil, card: CardData? = nil, target: Int = 0) {
         self.id = id
         self.title = title
         self.content = content
         self.updatedAt = updatedAt
         self.folderId = folderId
         self.card = card
+        self.target = target
     }
 
     // 手写解码：手改过 / 老版本的 JSON 缺字段时按默认值补，不整份报废
@@ -66,6 +68,7 @@ struct Sheet: Codable {
         updatedAt = try c.decodeIfPresent(Double.self, forKey: .updatedAt) ?? 0
         folderId = try c.decodeIfPresent(String.self, forKey: .folderId)
         card = try c.decodeIfPresent(CardData.self, forKey: .card)
+        target = try c.decodeIfPresent(Int.self, forKey: .target) ?? 0
     }
 }
 
@@ -146,6 +149,7 @@ struct DocState: Codable {
 - 大纲板：视图菜单 → 大纲板，章节平铺成卡片墙，拖动可重排、点一下进入那一章。
 - 查找替换：编辑菜单 ⌘F，支持全库/当前分组/当前篇，改完自动备份。
 - 历史版本：右键章节 → 历史版本，每次改动自动留一份，能看能恢复。
+- 逐章目标：右键章节 → 设置本章目标，大纲板标明偏短/刚好/偏长。
 - 新建人物卡：右键 → 新建人物卡，填姓名/关系/外貌/口头禅；正文里按住 ⌘ 点人名就能看这张卡。
 - 统计：侧栏左下角点「统计」，看最近 30 天每天写了多少字、连续写了多久。
 - 导入旧稿：工具栏「导入」支持 .md/.txt/.rtf/.docx，自动认编码（GBK 老稿也不乱码），全部放进一个新的「导入 日期」分组。
