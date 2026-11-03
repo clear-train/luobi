@@ -477,6 +477,7 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
         m.addItem(.separator())
         m.addItem(withTitle: "上移一位", action: #selector(moveSheetUp(_:)), keyEquivalent: "")
         m.addItem(withTitle: "下移一位", action: #selector(moveSheetDown(_:)), keyEquivalent: "")
+        m.addItem(withTitle: "历史版本…", action: #selector(showHistoryPanel(_:)), keyEquivalent: "")
         m.addItem(withTitle: "出场章节…", action: #selector(showMentionsForContextCard(_:)), keyEquivalent: "")
         m.addItem(withTitle: "编辑卡片信息…", action: #selector(editCardMenu(_:)), keyEquivalent: "")
         m.addItem(withTitle: "重命名…", action: #selector(renameSelected(_:)), keyEquivalent: "")
@@ -495,6 +496,8 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
                 item.isHidden = !isFolder
             case "编辑卡片信息…", "出场章节…":
                 item.isHidden = (it?.sheet?.card == nil)
+            case "历史版本…":
+                item.isHidden = (it?.sheet == nil)
             case "移动到分组":
                 item.isHidden = it?.sheet == nil
                 if let sub = item.submenu, let cur = it?.sheet {
@@ -680,6 +683,7 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
         alert.alertStyle = .warning
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         doc.sheets.remove(at: i)
+        SheetHistory.removeAll(sheetId: id)   // 稿子删了，历史也一起清掉
         if doc.activeId == id {
             let next = doc.sheets[min(i, doc.sheets.count - 1)]
             doc.activeId = next.id

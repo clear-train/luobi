@@ -257,7 +257,9 @@ extension EditorRoot {
 final class ReplaceHelper: NSObject {
     var onPerform: (() -> Void)?
     var onCancel: (() -> Void)?
+    var onDeleteHistory: (() -> Void)?
     @objc func performReplace(_ sender: Any?) { onPerform?() }
     @objc func performCancel(_ sender: Any?) { onCancel?() }
+    @objc func performDeleteHistory(_ sender: Any?) { onDeleteHistory?() }
 }
 

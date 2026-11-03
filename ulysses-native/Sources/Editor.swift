@@ -411,6 +411,10 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     func persistNow() {
         doc.recordDaily()
         let ok = Vault.save(doc)
+        // 单篇历史：正文改过才留一份（内部会与最新一份比对，重复就跳过）
+        if ok, let cur = doc.sheet(id: doc.activeId) {
+            SheetHistory.record(sheet: cur)
+        }
         refreshBar(saved: ok)
     }
 
