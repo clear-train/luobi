@@ -87,6 +87,7 @@ struct DocState: Codable {
     var dailyGoal: Int = 0             // 每日目标字数，0 = 不设
     var dailyBase: [String: Int] = [:] // "2026-11-03" -> 当天开工时全书字数
     var dailyDone: [String: Int] = [:] // "2026-11-03" -> 当天最多写到过多少字
+    var writeSeconds: [String: Int] = [:] // "2026-11-03" -> 当天真正在写的秒数
 
     init(sheets: [Sheet], activeId: String) {
         self.sheets = sheets
@@ -94,7 +95,7 @@ struct DocState: Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case sheets, activeId, typewriter, markdown, theme, goal, folders, sidebarVisible, fontSize, seenGuide, indentParagraphs, dailyGoal, dailyBase, dailyDone
+        case sheets, activeId, typewriter, markdown, theme, goal, folders, sidebarVisible, fontSize, seenGuide, indentParagraphs, dailyGoal, dailyBase, dailyDone, writeSeconds
     }
 
     // 手写解码：老版本 state.json 缺字段时回落默认值，不丢数据
@@ -113,6 +114,7 @@ struct DocState: Codable {
         dailyGoal = try c.decodeIfPresent(Int.self, forKey: .dailyGoal) ?? 0
         dailyBase = try c.decodeIfPresent([String: Int].self, forKey: .dailyBase) ?? [:]
         dailyDone = try c.decodeIfPresent([String: Int].self, forKey: .dailyDone) ?? [:]
+        writeSeconds = try c.decodeIfPresent([String: Int].self, forKey: .writeSeconds) ?? [:]
         seenGuide = try c.decodeIfPresent(Bool.self, forKey: .seenGuide) ?? false
     }
 
@@ -238,6 +240,33 @@ extension DocState {
         let key = dayKey()
         if dailyBase[key] == nil { dailyBase[key] = totalWords(self) }
         dailyDone[key] = max(dailyDone[key] ?? 0, todayWritten)
+    }
+
+    /// 记一段写作时间（秒）。只保留最近 180 天，一天最多算 12 小时，
+    /// 免得挂着窗口过夜把"写作时长"变成"开机时长"。
+    mutating func addWriteSeconds(_ n: Int) {
+        guard n > 0 else { return }
+        let key = dayKey()
+        let capped = min((writeSeconds[key] ?? 0) + n, 12 * 3600)
+        writeSeconds[key] = capped
+        if writeSeconds.count > 200 {
+            let keep = writeSeconds.keys.sorted().suffix(180)
+            writeSeconds = writeSeconds.filter { keep.contains($0.key) }
+        }
+    }
+
+    var todaySeconds: Int { writeSeconds[dayKey()] ?? 0 }
+
+    /// 最近 N 天的平均写作时长（秒），只除以"有记录的天数"，不让空白天稀释
+    func averageWriteSeconds(days: Int = 7) -> Int {
+        let cal = Calendar.current
+        var total = 0, used = 0
+        for i in 0..<days {
+            guard let d = cal.date(byAdding: .day, value: -i, to: Date()) else { continue }
+            let v = writeSeconds[dayKey(d)] ?? 0
+            if v > 0 { total += v; used += 1 }
+        }
+        return used == 0 ? 0 : total / used
     }
 
     /// 连续达标天数（今天没达标就从昨天往回数）

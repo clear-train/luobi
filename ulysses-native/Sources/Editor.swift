@@ -11,6 +11,9 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// 启动时若自动从备份恢复过，或者刚手动备份过，在这条状态栏里说一句
     var startupNote: String? = Vault.lastRecoveryNote
     var focusMode = false
+    var lastActivityAt = Date()
+    var sessionTimer: Timer?
+    var sessionAccrued = 0
     var readingMode = false
     var readingWasSidebarVisible = true
     var readingMonitor: Any? = nil
@@ -409,6 +412,11 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     func persistNow() {
+        // 先把攒着的写作时长并进去，免得每次落盘丢几秒
+        if sessionAccrued > 0 {
+            doc.addWriteSeconds(sessionAccrued)
+            sessionAccrued = 0
+        }
         doc.recordDaily()
         let ok = Vault.save(doc)
         // 单篇历史：正文改过才留一份（内部会与最新一份比对，重复就跳过）
@@ -449,6 +457,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     // MARK: 委托回调
 
     func controlTextDidChange(_ obj: Notification) {
+        noteActivity()
         switch obj.object as? NSTextField {
         case titleInput:
             if let i = activeIndex {
@@ -464,6 +473,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     func textDidChange(_ notification: Notification) {
+        noteActivity()
         if let i = activeIndex {
             doc.sheets[i].content = textView.string
             markDirty()

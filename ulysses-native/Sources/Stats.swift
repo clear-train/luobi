@@ -132,6 +132,11 @@ extension EditorRoot {
         _ = label("累计写作 \(stats.activeDays) 天 · 最长连续 \(stats.longestStreak) 天 · 本月 \(stats.monthWords) 字 · 总计 \(stats.totalWords) 字",
                   12, .regular, preset.text.withAlphaComponent(0.62), y: 310, h: 18)
 
+        // 时间维度：字数是结果，时长才是习惯
+        func minutes(_ sec: Int) -> String { sec < 60 ? "不到 1 分钟" : "\(sec / 60) 分钟" }
+        _ = label("今天写了 \(minutes(doc.todaySeconds)) · 近 7 天平均 \(minutes(doc.averageWriteSeconds(days: 7)))（只统计真正在打字的时间）",
+                  12, .regular, preset.text.withAlphaComponent(0.62), y: 292, h: 16)
+
         let chart = StatsChartView(frame: NSRect(x: 20, y: 58, width: 600, height: 240))
         chart.stats = stats
         chart.goal = goal
