@@ -16,6 +16,11 @@ struct BookChapter {
 extension DocState {
 
     /// 按侧栏顺序展开成章节列表。scope = 某个分组时，只导出它和它的子分组。
+    /// 能进书的文稿：人物卡片不是章节，别混进正文
+    func chapters(in folderId: String?) -> [Sheet] {
+        sheets(in: folderId).filter { $0.card == nil }
+    }
+
     func bookChapters(scope: String?, numbering: Bool = true) -> [BookChapter] {
         var out: [BookChapter] = []
 
@@ -25,11 +30,17 @@ extension DocState {
             out.append(BookChapter(title: title, content: sheet.content,
                                    level: min(level, 6), isGroup: false))
         }
+        // 只装卡片的空分组不该在成书里留下一个空标题
+        func hasChapters(_ folderId: String) -> Bool {
+            if !chapters(in: folderId).isEmpty { return true }
+            return childFolders(of: folderId).contains { hasChapters($0.id) }
+        }
         func walkChildren(of parent: String?, depth: Int) {
             for f in childFolders(of: parent) {
+                guard hasChapters(f.id) else { continue }
                 out.append(BookChapter(title: f.name, content: "", level: min(depth, 5), isGroup: true))
                 var i = 0
-                for s in sheets(in: f.id) { i += 1; emit(s, level: depth + 1, index: i, inFolder: true) }
+                for s in chapters(in: f.id) { i += 1; emit(s, level: depth + 1, index: i, inFolder: true) }
                 walkChildren(of: f.id, depth: depth + 1)
             }
         }
@@ -38,12 +49,12 @@ extension DocState {
         if startParent != nil {
             // 只导某个分组时：组里的文稿就是这部书的章节，先排它们、再排子分组
             var i = 0
-            for s in sheets(in: startParent) { i += 1; emit(s, level: 2, index: i, inFolder: true) }
+            for s in chapters(in: startParent) { i += 1; emit(s, level: 2, index: i, inFolder: true) }
             walkChildren(of: startParent, depth: 2)
         } else {
             // 整库导出：先走分组（那才是"书"），没归组的零散文稿放最后，不至于把后记插到正文中间
             walkChildren(of: startParent, depth: 2)
-            for s in sheets(in: startParent) { emit(s, level: 2, index: 0, inFolder: false) }
+            for s in chapters(in: startParent) { emit(s, level: 2, index: 0, inFolder: false) }
         }
         return out
     }
