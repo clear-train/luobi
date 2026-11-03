@@ -28,6 +28,7 @@ struct DocState: Codable {
     var sidebarVisible: Bool = true
     var fontSize: Double = 17
     var seenGuide: Bool = false     // 首次启动自动弹一次使用指南
+    var indentParagraphs: Bool = true  // 中文习惯：每段首行缩进两个字
 
     init(sheets: [Sheet], activeId: String) {
         self.sheets = sheets
@@ -35,7 +36,7 @@ struct DocState: Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case sheets, activeId, typewriter, markdown, theme, goal, folders, sidebarVisible, fontSize, seenGuide
+        case sheets, activeId, typewriter, markdown, theme, goal, folders, sidebarVisible, fontSize, seenGuide, indentParagraphs
     }
 
     // 手写解码：老版本 state.json 缺字段时回落默认值，不丢数据
@@ -50,6 +51,7 @@ struct DocState: Codable {
         folders = try c.decodeIfPresent([Folder].self, forKey: .folders) ?? []
         sidebarVisible = try c.decodeIfPresent(Bool.self, forKey: .sidebarVisible) ?? true
         fontSize = try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? 17
+        indentParagraphs = try c.decodeIfPresent(Bool.self, forKey: .indentParagraphs) ?? true
         seenGuide = try c.decodeIfPresent(Bool.self, forKey: .seenGuide) ?? false
     }
 
@@ -73,6 +75,9 @@ struct DocState: Codable {
 - 侧栏里的文稿可以直接拖进文件夹；右键有重命名、删除。
 - 打字机：正在写的这一行始终停在屏幕中间，眼睛不用追。
 - 排版：# 开头是标题，**两边两个星号**是加粗，> 开头是引用。
+- 缩进：每段首行空两格，中文长篇的版面习惯，点一下就能关。
+- 专注：收起侧栏和工具栏，正文收成一条居中的栏，只留字。按 Esc 或点右上角回来。
+- 底部状态栏写着「本篇多少字 / 全书多少字」，写长篇时心里有数。
 
 ## 你的字存在哪儿
 

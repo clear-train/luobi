@@ -10,6 +10,9 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var barLabel = NSTextField()
     /// 启动时若自动从备份恢复过，或者刚手动备份过，在这条状态栏里说一句
     var startupNote: String? = Vault.lastRecoveryNote
+    var focusMode = false
+    var sidebarWasVisible = true
+    var focusExitButton = NSButton()
     var searchField = NSSearchField()
     var plusButton = NSButton()
     var folderButton = NSButton()
@@ -40,9 +43,12 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var baseFont: NSFont { Typo.serif(CGFloat(doc.fontSize)) }
     var bodyParagraph: NSParagraphStyle {
         let p = NSMutableParagraphStyle()
-        p.lineSpacing = 10 * CGFloat(doc.fontSize / 17)
-        p.paragraphSpacing = 10 * CGFloat(doc.fontSize / 17)
+        let k = CGFloat(doc.fontSize / 17)
+        p.lineSpacing = 10 * k
+        p.paragraphSpacing = 10 * k
         p.lineBreakMode = .byWordWrapping
+        // 中文长篇的习惯：每段首行空两格。标题/引用在排版层会覆盖成 0。
+        p.firstLineHeadIndent = doc.indentParagraphs ? CGFloat(doc.fontSize) * 2 : 0
         return p
     }
     var bodyAttributes: [NSAttributedString.Key: Any] {
@@ -133,7 +139,11 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        // 手动装配 scrollView 时必须自己声明：窗口变宽/侧栏收起时正文跟着变宽
+        textView.autoresizingMask = [.width]
         textView.textContainerInset = NSSize(width: 40, height: 28)
+        updateTextInsets()
         textView.textContainer?.widthTracksTextView = true
         scrollView.documentView = textView
 
@@ -186,6 +196,15 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         addSubview(divider)
         addSubview(titleInput)
         addSubview(toolStack)
+
+        focusExitButton = NSButton(title: "退出专注（Esc）", target: self, action: Selector(("toggleFocus:")))
+        focusExitButton.bezelStyle = .texturedRounded
+        focusExitButton.controlSize = .small
+        focusExitButton.font = NSFont.systemFont(ofSize: 11)
+        focusExitButton.toolTip = "回到完整界面：侧栏、工具栏都回来"
+        focusExitButton.isHidden = true
+        focusExitButton.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(focusExitButton)
         addSubview(scrollView)
         addSubview(barLabel)
         refreshBar()
@@ -229,6 +248,9 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             toolStack.topAnchor.constraint(equalTo: topAnchor, constant: 42),
             toolStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
             toolStack.heightAnchor.constraint(equalToConstant: 24),
+            focusExitButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
+            focusExitButton.topAnchor.constraint(equalTo: topAnchor, constant: 42),
+            focusExitButton.heightAnchor.constraint(equalToConstant: 24),
 
             scrollView.topAnchor.constraint(equalTo: titleInput.bottomAnchor, constant: 6),
             scrollView.leadingAnchor.constraint(equalTo: titleInput.leadingAnchor),
@@ -272,7 +294,9 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
              ("导出", "exportActiveSheet:", "把当前这篇导出为 Markdown")],
             [("侧栏", "toggleSidebar:", "收起或展开左侧文稿树"),
              ("打字机", "toggleTypewriter:", "光标所在行始终停在屏幕中间，眼睛不用上下找"),
-             ("排版", "toggleMarkdown:", "按 Markdown 语法实时排版标题、加粗与引用")],
+             ("排版", "toggleMarkdown:", "按 Markdown 语法实时排版标题、加粗与引用"),
+             ("缩进", "toggleIndent:", "每段首行缩进两字（中文长篇的版面习惯）"),
+             ("专注", "toggleFocus:", "收起侧栏与工具栏，只留正文（Esc 退出）")],
             [("外观", themeSel, "切换纸色、深浅与正文字号")],
             [("指南", "showGuide:", "功能说明与使用指南")],
         ]
@@ -368,8 +392,9 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     func refreshBar(saved: Bool? = nil) {
         let n = activeCount
-        let count = n == 0 ? "尚无字数" : "约 \(n) 字"
-        var s = "Ulysses Native · \(doc.sheets.count) 篇 · " + count
+        let total = doc.sheets.reduce(0) { $0 + statCJK($1.content) + statLatin($1.content) }
+        let count = n == 0 ? "本篇空白" : "本篇 \(n) 字"
+        var s = "Ulysses Native · \(doc.sheets.count) 篇 · " + count + " · 全书 \(total) 字"
         if let saved = saved {
             s += " · " + (saved ? "已自动保存" : "保存失败：请把 App 拖进「应用程序」后从访达打开")
         }
@@ -413,6 +438,60 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     @objc func toggleTypewriter(_ sender: Any?) { doc.typewriter.toggle(); persistNow() }
     @objc func toggleMarkdown(_ sender: Any?) { doc.markdown.toggle(); applyMarkdownStyling(); persistNow() }
+
+    @objc func toggleIndent(_ sender: Any?) {
+        doc.indentParagraphs.toggle()
+        applyMarkdownStyling()
+        textView.typingAttributes = bodyAttributes
+        persistNow()
+    }
+
+    // MARK: 专注模式：只留正文，其他全部让位
+
+    @objc func toggleFocus(_ sender: Any?) {
+        focusMode.toggle()
+        applyFocusMode()
+    }
+
+    /// 专注模式把正文收成一条居中的阅读栏（约 720pt 宽），避免字跑到屏幕两端
+    private func updateTextInsets() {
+        let w = bounds.width
+        if focusMode && w > 0 {
+            let column = min(CGFloat(720), max(CGFloat(420), w - 160))
+            textView.textContainerInset = NSSize(width: max(40, (w - column) / 2), height: 40)
+        } else {
+            textView.textContainerInset = NSSize(width: 40, height: 28)
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        if focusMode { updateTextInsets() }
+    }
+
+    func applyFocusMode() {
+        let on = focusMode
+        updateTextInsets()
+        toolStack.isHidden = on
+        focusExitButton.isHidden = !on
+        titleInput.isHidden = on
+        if on {
+            // 进专注时顺手记住侧栏原本的状态，退出时还原
+            sidebarWasVisible = doc.sidebarVisible
+            doc.sidebarVisible = false
+        } else {
+            doc.sidebarVisible = sidebarWasVisible
+        }
+        applySidebarVisibility(animated: true)
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        if focusMode {
+            toggleFocus(nil)
+            return
+        }
+        super.cancelOperation(sender)
+    }
     @objc func saveNow(_ sender: Any?) { persistNow() }
 
     // MARK: 侧栏收起 / 字号
