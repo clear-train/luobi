@@ -230,9 +230,28 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
             }
             tf.attributedStringValue = attr
         case .sheet(let s):
-            tf.stringValue = s.title.isEmpty ? "未命名" : s.title
-            tf.font = NSFont.systemFont(ofSize: 13)
-            tf.textColor = s.id == doc.activeId ? .labelColor : .secondaryLabelColor
+            let color: NSColor = s.id == doc.activeId ? .labelColor : .secondaryLabelColor
+            if let card = s.card {
+                // 人物卡片：小人像 + 名字，和普通文稿在侧栏里能一眼分开
+                let attr = NSMutableAttributedString()
+                if let img = NSImage(systemSymbolName: "person.crop.circle", accessibilityDescription: "人物卡片") {
+                    let att = NSTextAttachment()
+                    att.image = img
+                    attr.append(NSAttributedString(attachment: att))
+                    attr.append(NSAttributedString(string: "  "))
+                }
+                let nm = card.name.isEmpty ? s.title : card.name
+                attr.append(NSAttributedString(string: nm.isEmpty ? "未命名人物" : nm, attributes: [
+                    .font: NSFont.systemFont(ofSize: 13),
+                    .foregroundColor: color,
+                ]))
+                tf.attributedStringValue = attr
+            } else {
+                tf.attributedStringValue = NSAttributedString(string: s.title.isEmpty ? "未命名" : s.title, attributes: [
+                    .font: NSFont.systemFont(ofSize: 13),
+                    .foregroundColor: color,
+                ])
+            }
         }
         return cell
     }
@@ -449,6 +468,7 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
         m.delegate = self
         m.addItem(withTitle: "新建文稿", action: #selector(addSheet(_:)), keyEquivalent: "")
         m.addItem(withTitle: "新建分组", action: #selector(addFolder(_:)), keyEquivalent: "")
+        m.addItem(withTitle: "新建人物卡", action: #selector(newCardSheet(_:)), keyEquivalent: "")
         m.addItem(.separator())
         m.addItem(withTitle: "在此分组新建文稿", action: #selector(addSheetHere(_:)), keyEquivalent: "")
         let move = NSMenuItem(title: "移动到分组", action: nil, keyEquivalent: "")
@@ -457,6 +477,7 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
         m.addItem(.separator())
         m.addItem(withTitle: "上移一位", action: #selector(moveSheetUp(_:)), keyEquivalent: "")
         m.addItem(withTitle: "下移一位", action: #selector(moveSheetDown(_:)), keyEquivalent: "")
+        m.addItem(withTitle: "编辑卡片信息…", action: #selector(editCardMenu(_:)), keyEquivalent: "")
         m.addItem(withTitle: "重命名…", action: #selector(renameSelected(_:)), keyEquivalent: "")
         m.addItem(withTitle: "删除", action: #selector(deleteSelected(_:)), keyEquivalent: "")
         for it in m.items where it.action != nil { it.target = self }
@@ -471,6 +492,8 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
             switch item.title {
             case "在此分组新建文稿":
                 item.isHidden = !isFolder
+            case "编辑卡片信息…":
+                item.isHidden = (it?.sheet?.card == nil)
             case "移动到分组":
                 item.isHidden = it?.sheet == nil
                 if let sub = item.submenu, let cur = it?.sheet {
@@ -576,7 +599,7 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
         renameFolder(f.id)   // 建完直接让你起名，省一次右键
     }
 
-    private func contextSideItem() -> SideItem? {
+    func contextSideItem() -> SideItem? {
         let row = table.clickedRow >= 0 ? table.clickedRow : table.selectedRow
         guard row >= 0 else { return nil }
         return table.item(atRow: row) as? SideItem

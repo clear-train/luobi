@@ -42,6 +42,7 @@ for (name, items) in [
     ]),
     ("文件", [
         NSMenuItem(title: "新建文稿", action: Selector(("addSheet:")), keyEquivalent: "n"),
+        NSMenuItem(title: "新建人物卡", action: Selector(("newCardSheet:")), keyEquivalent: ""),
         NSMenuItem(title: "导入 Markdown…", action: Selector(("importMDFiles:")), keyEquivalent: "o"),
         { let s = NSMenuItem.separator(); return s }(),
         NSMenuItem(title: "导出当前文稿…", action: Selector(("exportActiveSheet:")), keyEquivalent: "e"),

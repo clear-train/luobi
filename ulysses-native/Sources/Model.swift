@@ -9,12 +9,64 @@ struct Folder: Codable {
     var expanded: Bool? = nil   // nil 视作展开，兼容旧数据
 }
 
+/// 人物 / 设定卡片的字段。写小说时最难记的是"这个人的口头禅、和谁什么关系"，
+/// 所以把它从正文里拎出来变成结构化的几栏。
+struct CardData: Codable, Equatable {
+    var name: String = ""
+    var relation: String = ""      // 关系：主角的母亲 / 邻居 / 反派
+    var appearance: String = ""    // 外貌
+    var catchphrase: String = ""   // 口头禅
+
+    enum CodingKeys: String, CodingKey { case name, relation, appearance, catchphrase }
+
+    init() {}
+
+    init(name: String = "", relation: String = "", appearance: String = "", catchphrase: String = "") {
+        self.name = name; self.relation = relation
+        self.appearance = appearance; self.catchphrase = catchphrase
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        relation = try c.decodeIfPresent(String.self, forKey: .relation) ?? ""
+        appearance = try c.decodeIfPresent(String.self, forKey: .appearance) ?? ""
+        catchphrase = try c.decodeIfPresent(String.self, forKey: .catchphrase) ?? ""
+    }
+}
+
 struct Sheet: Codable {
     var id: String
     var title: String
     var content: String
     var updatedAt: Double = 0
     var folderId: String? = nil   // nil = 放在最外层
+    var card: CardData? = nil     // 非空 = 这是一张人物/设定卡片
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, content, updatedAt, folderId, card
+    }
+
+    init(id: String, title: String, content: String = "",
+         updatedAt: Double = 0, folderId: String? = nil, card: CardData? = nil) {
+        self.id = id
+        self.title = title
+        self.content = content
+        self.updatedAt = updatedAt
+        self.folderId = folderId
+        self.card = card
+    }
+
+    // 手写解码：手改过 / 老版本的 JSON 缺字段时按默认值补，不整份报废
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        content = try c.decodeIfPresent(String.self, forKey: .content) ?? ""
+        updatedAt = try c.decodeIfPresent(Double.self, forKey: .updatedAt) ?? 0
+        folderId = try c.decodeIfPresent(String.self, forKey: .folderId)
+        card = try c.decodeIfPresent(CardData.self, forKey: .card)
+    }
 }
 
 struct DocState: Codable {
@@ -87,6 +139,7 @@ struct DocState: Codable {
 - 成书：把分组里的稿子按侧栏顺序拼成一整本，导出网页（双击就能看/打印）、Markdown 或 Word（.rtf，发给编辑直接能开）。
 - 写作目标：侧栏左下角点「写作目标」，设每天多少字；底部细进度条和状态栏会跟着涨，达标变绿。
 - 排序：拖动文稿可以调顺序（也能拖进分组）；不想拖就右键「上移一位 / 下移一位」。
+- 人物卡片：右键 → 新建人物卡，填姓名/关系/外貌/口头禅；正文里按住 ⌘ 点人名就能看这张卡。
 - 统计：侧栏左下角点「统计」，看最近 30 天每天写了多少字、连续写了多久。
 - 搜索：左上角搜索框搜**标题和正文**，结果显示命中片段，点一条直接跳到命中处。
 
@@ -187,6 +240,31 @@ extension DocState {
             if done >= dailyGoal { streak += 1; cursor = cursor.addingTimeInterval(-86400) } else { break }
         }
         return streak
+    }
+}
+
+// MARK: - 人物卡片
+
+extension DocState {
+    /// 所有卡片（人物/设定）
+    var cardSheets: [Sheet] { sheets.filter { $0.card != nil } }
+
+    /// 按名字找卡片：先找卡片名字段，再退回文稿标题
+    func cardSheet(named name: String) -> Sheet? {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty else { return nil }
+        return sheets.first { s in
+            guard let c = s.card else { return false }
+            return c.name.trimmingCharacters(in: .whitespaces) == n || s.title == n
+        }
+    }
+
+    /// 正文里这句话出现了哪些卡片名字（长的优先，避免"小明"抢了"小明妈妈"）
+    func cardNamesIn(_ text: String) -> [String] {
+        let names = cardSheets.compactMap { $0.card?.name.isEmpty == false ? $0.card!.name : $0.title }
+            .filter { !$0.isEmpty }
+            .sorted { $0.count > $1.count }
+        return names.filter { text.contains($0) }
     }
 }
 

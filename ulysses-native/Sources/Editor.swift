@@ -6,7 +6,7 @@ import AppKit
 final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var titleInput = NSTextField()
     var scrollView = NSScrollView()
-    var textView = NSTextView()
+    var textView = CardTextView()
     var barLabel = NSTextField()
     /// 启动时若自动从备份恢复过，或者刚手动备份过，在这条状态栏里说一句
     var startupNote: String? = Vault.lastRecoveryNote
@@ -101,6 +101,8 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         table.allowsMultipleSelection = false
         table.dataSource = self
         table.delegate = self
+        table.target = self
+        table.doubleAction = #selector(openSelectedCard(_:))
         table.backgroundColor = .clear
         table.selectionHighlightStyle = .regular
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
@@ -125,7 +127,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
-        textView = NSTextView()
+        textView = CardTextView()
         textView.isRichText = true
         textView.usesFontPanel = false
         textView.string = doc.sheet(id: doc.activeId)?.content ?? ""
@@ -145,6 +147,9 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         textView.textContainerInset = NSSize(width: 40, height: 28)
         updateTextInsets()
         textView.textContainer?.widthTracksTextView = true
+        (textView as? CardTextView)?.cardClickHandler = { [weak self] p in
+            self?.handleCardClick(at: p) ?? false
+        }
         scrollView.documentView = textView
 
         barLabel.font = NSFont.systemFont(ofSize: 11)
@@ -159,7 +164,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         buildToolbar()
 
         // 侧栏底部常驻入口：不靠记快捷键，也不靠翻菜单
-        let footHint = NSTextField(labelWithString: "右键管理 · 拖动归档")
+        let footHint = NSTextField(labelWithString: "右键管理·拖动")
         footHint.font = NSFont.systemFont(ofSize: 10.5)
         footHint.textColor = .tertiaryLabelColor
         footHint.translatesAutoresizingMaskIntoConstraints = false
@@ -168,7 +173,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         sidebarFooter.spacing = 6
         sidebarFooter.alignment = .centerY
         sidebarFooter.translatesAutoresizingMaskIntoConstraints = false
-        let footGoal = NSButton(title: "写作目标", target: self, action: Selector(("setGoalDialog:")))
+        let footGoal = NSButton(title: "目标", target: self, action: Selector(("setGoalDialog:")))
         footGoal.bezelStyle = .texturedRounded
         footGoal.controlSize = .small
         footGoal.font = NSFont.systemFont(ofSize: 10.5)
@@ -178,7 +183,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         footStats.controlSize = .small
         footStats.font = NSFont.systemFont(ofSize: 10.5)
         footStats.toolTip = "最近 30 天的写作曲线（每天写了多少字）"
-        let footGuide = NSButton(title: "功能说明", target: self, action: Selector(("showGuide:")))
+        let footGuide = NSButton(title: "指南", target: self, action: Selector(("showGuide:")))
         footGuide.bezelStyle = .texturedRounded
         footGuide.controlSize = .small
         footGuide.font = NSFont.systemFont(ofSize: 10.5)
