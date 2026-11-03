@@ -3,17 +3,20 @@ import AppKit
 // MARK: - 编辑器主体（搭视图 + 数据流 + 菜单动作）
 // 侧栏的具体实现见 Sidebar.swift，排版引擎见 Styling.swift
 
-final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
-                        NSTableViewDataSource, NSTableViewDelegate {
+final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var titleInput = NSTextField()
     var scrollView = NSScrollView()
     var textView = NSTextView()
     var barLabel = NSTextField()
     var searchField = NSSearchField()
     var plusButton = NSButton()
+    var folderButton = NSButton()
     var sidebarScroll = NSScrollView()
-    var table = NSTableView()
+    var table = NSOutlineView()
     var toolStack = NSStackView()
+    var sidebarWidth: NSLayoutConstraint!
+    var titleLeading: NSLayoutConstraint!
+    var sidebarViews: [NSView] = []
 
     var saveTimer: Timer? = nil
     var styleTimer: Timer? = nil
@@ -30,7 +33,21 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
 
     required init?(coder: NSCoder) { fatalError("不走 storyboard") }
 
-    let baseFont = Typo.body
+    var baseFont: NSFont { Typo.serif(CGFloat(doc.fontSize)) }
+    var bodyParagraph: NSParagraphStyle {
+        let p = NSMutableParagraphStyle()
+        p.lineSpacing = 10 * CGFloat(doc.fontSize / 17)
+        p.paragraphSpacing = 10 * CGFloat(doc.fontSize / 17)
+        p.lineBreakMode = .byWordWrapping
+        return p
+    }
+    var bodyAttributes: [NSAttributedString.Key: Any] {
+        // 正文色跟随当前主题预设（不是系统语义色），这样切换主题/敲字都不会串色
+        let ink = ThemePresets.preset(doc.theme).text
+        return [.font: baseFont, .foregroundColor: ink,
+                .kern: 0.3, .paragraphStyle: bodyParagraph]
+    }
+    var bodyAttrList: [NSAttributedString.Key: Any] { bodyAttributes }
 
     private func buildViews() {
         wantsLayer = true
@@ -51,14 +68,32 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
         plusButton.action = #selector(addSheet(_:))
         plusButton.translatesAutoresizingMaskIntoConstraints = false
 
-        table = NSTableView()
-        table.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("t")))
+        folderButton.title = "▤"
+        folderButton.bezelStyle = .regularSquare
+        folderButton.isBordered = true
+        folderButton.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        folderButton.toolTip = "新建分组（也可以右键侧栏）"
+        folderButton.target = self
+        folderButton.action = #selector(addFolder(_:))
+        folderButton.translatesAutoresizingMaskIntoConstraints = false
+
+        table = NSOutlineView()
+        let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("t"))
+        col.resizingMask = .autoresizingMask
+        table.addTableColumn(col)
+        table.outlineTableColumn = col
         table.headerView = nil
-        table.rowHeight = 34
+        table.rowHeight = 32
+        table.indentationPerLevel = 14
         table.allowsMultipleSelection = false
         table.dataSource = self
         table.delegate = self
-        table.setAccessibilityLabel("文稿列表")
+        table.backgroundColor = .clear
+        table.selectionHighlightStyle = .regular
+        table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        table.setAccessibilityLabel("文稿与分组")
+        table.registerForDraggedTypes([NSPasteboard.PasteboardType("com.ulysses.sheet")])
+        table.menu = makeSidebarMenu()
         sidebarScroll.documentView = table
         sidebarScroll.hasVerticalScroller = true
         sidebarScroll.drawsBackground = false
@@ -82,8 +117,8 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
         textView.usesFontPanel = false
         textView.string = doc.sheet(id: doc.activeId)?.content ?? ""
         textView.font = baseFont
-        textView.typingAttributes = Typo.bodyAttributes
-        textView.defaultParagraphStyle = Typo.bodyParagraph
+        textView.typingAttributes = bodyAttributes
+        textView.defaultParagraphStyle = bodyParagraph
         textView.insertionPointColor = .secondaryLabelColor
         textView.delegate = self
         textView.usesFindBar = true
@@ -113,6 +148,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
 
         addSubview(searchField)
         addSubview(plusButton)
+        addSubview(folderButton)
         addSubview(sidebarScroll)
         addSubview(divider)
         addSubview(titleInput)
@@ -135,18 +171,20 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
 
             searchField.topAnchor.constraint(equalTo: topAnchor, constant: 10),
             searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            searchField.widthAnchor.constraint(equalToConstant: 170),
+            searchField.widthAnchor.constraint(equalToConstant: 150),
             plusButton.topAnchor.constraint(equalTo: searchField.topAnchor),
             plusButton.leadingAnchor.constraint(equalTo: searchField.trailingAnchor, constant: 4),
             plusButton.widthAnchor.constraint(equalToConstant: 28),
             plusButton.heightAnchor.constraint(equalTo: searchField.heightAnchor),
+            folderButton.topAnchor.constraint(equalTo: searchField.topAnchor),
+            folderButton.leadingAnchor.constraint(equalTo: plusButton.trailingAnchor, constant: 4),
+            folderButton.widthAnchor.constraint(equalToConstant: 28),
+            folderButton.heightAnchor.constraint(equalTo: searchField.heightAnchor),
             sidebarScroll.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
             sidebarScroll.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            sidebarScroll.widthAnchor.constraint(equalToConstant: 212),
             sidebarScroll.bottomAnchor.constraint(equalTo: barLabel.topAnchor, constant: -6),
 
             titleInput.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            titleInput.leadingAnchor.constraint(equalTo: sidebarScroll.trailingAnchor, constant: 20),
             titleInput.trailingAnchor.constraint(equalTo: toolStack.leadingAnchor, constant: -12),
 
             toolStack.topAnchor.constraint(equalTo: topAnchor, constant: 14),
@@ -163,6 +201,12 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
             barLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
             barLabel.heightAnchor.constraint(equalToConstant: 16),
         ])
+        sidebarWidth = sidebarScroll.widthAnchor.constraint(equalToConstant: 236)
+        sidebarWidth.isActive = true
+        titleLeading = titleInput.leadingAnchor.constraint(equalTo: sidebarScroll.trailingAnchor, constant: 20)
+        titleLeading.isActive = true
+        sidebarViews = [searchField, plusButton, folderButton, sidebarScroll, divider]
+        applySidebarVisibility(animated: false)
 
         applyMarkdownStyling()
         refreshTable()
@@ -179,13 +223,16 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
     // MARK: 顶部工具栏（可见的按钮，不依赖菜单）
 
     private func buildToolbar() {
+        let themeSel = responds(to: Selector(("showThemePanel:"))) ? "showThemePanel:" : "toggleTheme:"
         let specs: [(String, String)] = [
-            ("新建", "addSheet:"),
+            ("＋ 文稿", "addSheet:"),
+            ("▤ 分组", "addFolder:"),
+            ("侧栏", "toggleSidebar:"),
             ("导入", "importMDFiles:"),
             ("导出", "exportActiveSheet:"),
             ("打字机", "toggleTypewriter:"),
             ("排版", "toggleMarkdown:"),
-            ("主题", "toggleTheme:"),
+            ("外观", themeSel),
             ("目标", "setGoalDialog:"),
             ("指南", "showGuide:"),
         ]
@@ -230,7 +277,12 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
             n += 1
             t = "未命名 \(n)"
         }
-        let s = Sheet(id: UUID().uuidString, title: t, content: "")
+        var folder: String? = nil
+        if let row = table.selectedRow >= 0 ? table.selectedRow : nil,
+           let it = table.item(atRow: row) as? SideItem, let f = it.folder {
+            folder = f.id
+        }
+        let s = Sheet(id: UUID().uuidString, title: t, content: "", folderId: folder)
         doc.sheets.append(s)
         switchTo(s.id)
     }
@@ -308,4 +360,50 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
     @objc func toggleTypewriter(_ sender: Any?) { doc.typewriter.toggle(); persistNow() }
     @objc func toggleMarkdown(_ sender: Any?) { doc.markdown.toggle(); applyMarkdownStyling(); persistNow() }
     @objc func saveNow(_ sender: Any?) { persistNow() }
+
+    // MARK: 侧栏收起 / 字号
+
+    @objc func toggleSidebar(_ sender: Any?) {
+        doc.sidebarVisible.toggle()
+        applySidebarVisibility(animated: true)
+        persistNow()
+    }
+
+    func applySidebarVisibility(animated: Bool) {
+        let show = doc.sidebarVisible
+        for v in sidebarViews { v.isHidden = !show }
+        sidebarWidth.constant = show ? 236 : 0
+        if animated, let w = window {
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.16
+                ctx.allowsImplicitAnimation = true
+                self.layoutSubtreeIfNeeded()
+                w.layoutIfNeeded()
+            }, completionHandler: nil)
+        } else {
+            layoutSubtreeIfNeeded()
+        }
+    }
+
+    /// 整份文档换掉后刷新视图（导入/迁移/测试用）
+    func adoptDoc(_ d: DocState) {
+        doc = d
+        titleInput.stringValue = doc.sheet(id: doc.activeId)?.title ?? ""
+        textView.string = doc.sheet(id: doc.activeId)?.content ?? ""
+        applySidebarVisibility(animated: false)
+        let themeSel = Selector(("applyTheme:"))
+        if responds(to: themeSel) { perform(themeSel, with: nil) }
+        reapplyStyles()
+        refreshTable()
+        refreshBar()
+    }
+
+    /// 字号/主题变了之后重排一次（不动 textView，不丢光标）
+    func reapplyStyles() {
+        Typo.scale = CGFloat(doc.fontSize / 17)
+        textView.font = baseFont
+        textView.typingAttributes = bodyAttributes
+        textView.defaultParagraphStyle = bodyParagraph
+        applyMarkdownStyling()
+    }
 }

@@ -1,7 +1,8 @@
 import AppKit
 
 // 标题字号档位交给 Typography 统一管理（衬线 + 粗细一致）
-private let _cachedHeadingFonts: [NSFont] = (1...6).map { Typo.heading($0) }
+// 字号可调，所以每次排版按当前 scale 现算（六个字体实例，成本可忽略）
+private var headingFonts: [NSFont] { (1...6).map { Typo.heading($0) } }
 
 // MARK: - 排版引擎：Markdown → 文本属性
 
@@ -18,10 +19,10 @@ extension EditorRoot {
         let storage = textView.textStorage!
         let full = NSRange(location: 0, length: storage.length)
         guard doc.markdown else {
-            storage.setAttributes(Typo.bodyAttributes, range: full)
+            storage.setAttributes(bodyAttributes, range: full)
             return
         }
-        storage.setAttributes(Typo.bodyAttributes, range: full)
+        storage.setAttributes(bodyAttributes, range: full)
 
         let ns = storage.string as NSString
         if full.length == 0 { return }
@@ -36,7 +37,7 @@ extension EditorRoot {
                 let rest = trimmed.dropFirst(hashCount)
                 if rest.isEmpty || rest.hasPrefix(" ") || rest.hasPrefix("\t") {
                     storage.addAttributes([
-                        .font: _cachedHeadingFonts[hashCount - 1],
+                        .font: headingFonts[hashCount - 1],
                         .paragraphStyle: Typo.headingParagraph(),
                     ], range: enclosing)
                     return

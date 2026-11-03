@@ -39,26 +39,13 @@ for (name, items) in [
         NSMenuItem(title: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"),
     ]),
     ("视图", [
-        {
-            let i = NSMenuItem(title: "打字机居中", action: Selector(("toggleTypewriter:")), keyEquivalent: "t")
-            i.keyEquivalentModifierMask = [.command, .option]
-            return i
-        }(),
-        {
-            let i = NSMenuItem(title: "Markdown 排版", action: Selector(("toggleMarkdown:")), keyEquivalent: "m")
-            i.keyEquivalentModifierMask = [.command, .option]
-            return i
-        }(),
-        {
-            let i = NSMenuItem(title: "切换主题（羊皮纸/深夜）", action: Selector(("toggleTheme:")), keyEquivalent: "y")
-            i.keyEquivalentModifierMask = [.command, .option]
-            return i
-        }(),
-        {
-            let i = NSMenuItem(title: "设定写作目标字数…", action: Selector(("setGoalDialog:")), keyEquivalent: "g")
-            i.keyEquivalentModifierMask = [.command, .option]
-            return i
-        }(),
+        NSMenuItem(title: "显示/收起侧栏", action: Selector(("toggleSidebar:")), keyEquivalent: ""),
+        NSMenuItem(title: "新建分组", action: Selector(("addFolder:")), keyEquivalent: ""),
+        { let s = NSMenuItem.separator(); return s }(),
+        NSMenuItem(title: "打字机居中", action: Selector(("toggleTypewriter:")), keyEquivalent: ""),
+        NSMenuItem(title: "Markdown 排版", action: Selector(("toggleMarkdown:")), keyEquivalent: ""),
+        NSMenuItem(title: "外观（主题与字号）…", action: Selector(("showThemePanel:")), keyEquivalent: ""),
+        NSMenuItem(title: "设定写作目标字数…", action: Selector(("setGoalDialog:")), keyEquivalent: ""),
     ]),
     ("窗口", [
         NSMenuItem(title: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"),

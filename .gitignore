@@ -8,3 +8,5 @@ word-game/.tmp-codex/
 */build/
 ulysses-native/preview.png
 .DS_Store
+
+ulysses-native/preview-collapsed.png

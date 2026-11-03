@@ -1,12 +1,20 @@
 import Foundation
 
-// MARK: - 数据模型：多篇文稿
+// MARK: - 数据模型：分组（树）+ 多篇文稿
+
+struct Folder: Codable {
+    var id: String
+    var name: String
+    var parentId: String? = nil
+    var expanded: Bool? = nil   // nil 视作展开，兼容旧数据
+}
 
 struct Sheet: Codable {
     var id: String
     var title: String
     var content: String
     var updatedAt: Double = 0
+    var folderId: String? = nil   // nil = 放在最外层
 }
 
 struct DocState: Codable {
@@ -14,11 +22,38 @@ struct DocState: Codable {
     var activeId: String
     var typewriter: Bool = true
     var markdown: Bool = true
-    var theme: String = "paper"   // paper | deep
-    var goal: Int = 0             // 目标总字数，0=未启用
+    var theme: String = "paper"      // paper | ivory | green | deep
+    var goal: Int = 0                // 目标总字数，0=未启用
+    var folders: [Folder] = []
+    var sidebarVisible: Bool = true
+    var fontSize: Double = 17
+
+    init(sheets: [Sheet], activeId: String) {
+        self.sheets = sheets
+        self.activeId = activeId
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sheets, activeId, typewriter, markdown, theme, goal, folders, sidebarVisible, fontSize
+    }
+
+    // 手写解码：老版本 state.json 缺字段时回落默认值，不丢数据
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sheets = try c.decode([Sheet].self, forKey: .sheets)
+        activeId = try c.decode(String.self, forKey: .activeId)
+        typewriter = try c.decodeIfPresent(Bool.self, forKey: .typewriter) ?? true
+        markdown = try c.decodeIfPresent(Bool.self, forKey: .markdown) ?? true
+        theme = try c.decodeIfPresent(String.self, forKey: .theme) ?? "paper"
+        goal = try c.decodeIfPresent(Int.self, forKey: .goal) ?? 0
+        folders = try c.decodeIfPresent([Folder].self, forKey: .folders) ?? []
+        sidebarVisible = try c.decodeIfPresent(Bool.self, forKey: .sidebarVisible) ?? true
+        fontSize = try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? 17
+    }
 
     static func initial() -> DocState {
-        let s = Sheet(id: UUID().uuidString, title: "第一章", content: "开始写。")
+        let folder = Folder(id: UUID().uuidString, name: "小说")
+        let s = Sheet(id: UUID().uuidString, title: "第一章", content: "开始写。", folderId: folder.id)
         let guide = Sheet(id: UUID().uuidString, title: "使用指南", content: """
 # 欢迎使用 Ulysses Native
 
@@ -26,16 +61,16 @@ struct DocState: Codable {
 
 ## 三步开始
 
-1. 左边点 + 号，新建一篇。
+1. 左下角「＋文」新建一篇；「▤ 分组」建一个文件夹，把文稿归进去。
 2. 直接把想法敲进来，不用管格式。
-3. 停笔 0.8 秒会自动保存，也可以随时按 ⌘S。
+3. 停笔 0.8 秒会自动保存。
 
-## 你会用到的几个开关
+## 几个按钮
 
-- 打字机：让正在写的这一行始终停在屏幕中间，眼睛不用追着文字跑。
+- 顶部工具栏从左到右：＋文（新建文稿）、▤ 分组（新建文件夹）、侧栏（收起/展开）、导入、导出、打字机、排版、主题、目标、指南。
+- 侧栏里的文稿可以直接拖进文件夹；右键有重命名、删除。
+- 打字机：正在写的这一行始终停在屏幕中间，眼睛不用追。
 - 排版：# 开头是标题，**两边两个星号**是加粗，> 开头是引用。
-- 主题：羊皮纸 / 深夜两套，白天写、夜里写都舒服。
-- 目标：给自己设一个字数目标，底部的细条会一点点长满，达标变绿。
 
 ## 你的字存在哪儿
 
@@ -43,19 +78,32 @@ struct DocState: Codable {
 
 这是唯一的数据文件。想备份，复制它就行；想换电脑，把它带过去。
 
-## 快捷键
+## 少记快捷键
 
-⌘N 新建　⌘S 保存　⌘O 导入　⌘E 导出
-⌥⌘M 排版开关　⌥⌘Y 主题　⌥⌘G 目标
+功能都做成了可点的按钮和右键菜单，只有四个最常用的键：
+⌘N 新建文稿　⌘S 保存　⌘O 导入　⌘E 导出
+""", folderId: nil)
+        return DocState(sheets: [s, guide], activeId: s.id).with(folders: [folder])
+    }
 
-写坏了不要紧：⌘Z 撤销，删文稿会先问你一次。
-
-去写吧。第一篇不必好看。
-""")
-        return DocState(sheets: [s, guide], activeId: s.id)
+    func with(folders: [Folder]) -> DocState {
+        var copy = self
+        copy.folders = folders
+        return copy
     }
 
     func sheet(id: String) -> Sheet? { sheets.first { $0.id == id } }
+    func folder(id: String) -> Folder? { folders.first { $0.id == id } }
+
+    /// 某个分组下的直接子分组
+    func childFolders(of parent: String?) -> [Folder] {
+        folders.filter { $0.parentId == parent }
+    }
+
+    /// 某个分组下的直接子文稿
+    func sheets(in parent: String?) -> [Sheet] {
+        sheets.filter { ($0.folderId ?? nil) == parent }
+    }
 }
 
 // 旧版单篇文档的形状，只迁移用
@@ -90,9 +138,10 @@ enum Vault {
             let s = Sheet(id: UUID().uuidString,
                           title: legacy.title ?? "未命名",
                           content: legacy.content ?? "")
-            return DocState(sheets: [s], activeId: s.id,
-                            typewriter: legacy.typewriter ?? true,
-                            markdown: legacy.markdown ?? true)
+            var doc = DocState(sheets: [s], activeId: s.id)
+            doc.typewriter = legacy.typewriter ?? true
+            doc.markdown = legacy.markdown ?? true
+            return doc
         }
         return .initial()
     }

@@ -5,7 +5,10 @@ import AppKit
 // AppKit 默认是无衬线系统字体 + 紧密行距，所以"字不如 HTML 好看"。这里统一接管。
 
 enum Typo {
-    static let bodySize: CGFloat = 17
+    /// 基准正文字号；界面里的「正文字号」滑块通过 scale 缩放整套排版
+    static let baseBodySize: CGFloat = 17
+    static var scale: CGFloat = 1
+    static var bodySize: CGFloat { baseBodySize * scale }
 
     /// 正文字体：优先宋体（中文衬线），拉丁字符落到 Georgia 观感
     static func serif(_ size: CGFloat, bold: Bool = false) -> NSFont {
@@ -27,14 +30,14 @@ enum Typo {
     static func heading(_ level: Int) -> NSFont {
         let sizes: [CGFloat] = [26, 23, 20, 18, 17, 16]
         let i = max(1, min(6, level)) - 1
-        return bold(sizes[i])
+        return serif(sizes[i] * scale, bold: true)
     }
 
     /// 正文段落：行距等于 HTML 的 1.95 行高观感
     static var bodyParagraph: NSParagraphStyle {
         let p = NSMutableParagraphStyle()
-        p.lineSpacing = 10
-        p.paragraphSpacing = 10
+        p.lineSpacing = 10 * scale
+        p.paragraphSpacing = 10 * scale
         p.lineBreakMode = .byWordWrapping
         return p
     }
