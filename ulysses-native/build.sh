@@ -22,6 +22,7 @@ echo "使用 SDK: $CHOSEN"
 rm -rf build
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Info.plist "$APP/Contents/Info.plist"
+[ -f icons/AppIcon.icns ] && cp icons/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns" || echo "（暂无图标，跳过）"
 
 SDKROOT="$SDKROOT_DIR/$CHOSEN" swiftc -O -module-cache-path "$MODULECACHE" \
     -o "$APP/Contents/MacOS/ulysses-native" Sources/*.swift -framework AppKit
