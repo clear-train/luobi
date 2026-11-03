@@ -163,12 +163,23 @@ private func guideText(preset: ThemePreset) -> NSAttributedString {
     add("删除不可撤销，只能靠备份找回：之前拷走的 state.json，或导出过的 Markdown。",
         font: guideNoteFont, color: note, before: 2, after: 2)
 
+    // 5.5 写成一本以后
+    section("写成一本以后")
+    bullet("大纲板（视图菜单）：章节平铺成卡片墙，看全书的长度和分布，拖动可重排，点一下进入那一章。")
+    bullet("阅读模式（视图菜单）：藏起所有控件、正文只读、← → 翻篇、Esc 退出，通读改稿时用。")
+    bullet("查找替换（⌘F）：改人名、统一用词，范围可选「仅此篇 / 当前分组 / 全库」，替换前自动备份。")
+    bullet("历史版本（右键章节）：每次改动自动留一份，能看能恢复；每篇最多 40 份。")
+    bullet("逐章目标（右键章节）：给一章设个字数额度，大纲板上会标「偏短 / 刚好 / 偏长」。")
+    bullet("人物卡片：侧栏右键「新建人物卡」；⌘ 点正文里的名字会弹出卡片。视图菜单里有「人物一览」和「人物关系图」。")
+    bullet("写作统计（视图菜单）：最近 30 天的字数柱状图、连续达标天数、目标线。")
+
     // 6 数据在哪
     section("数据在哪")
     bullet("整个文稿库——分组、文稿、偏好——只有一个 JSON 文件：")
     path("~/Library/Application Support/UlyssesNative/state.json")
     bullet("导出的 Markdown 默认落在：")
     path("~/Documents/UlyssesNative/")
+    bullet("同一目录下还有两个文件夹：Backups/（整库快照，每 5 分钟一份，最多 20 份）和 History/<文稿 id>/（单篇历史，普通 .md 文件）。")
     bullet("复制这个 JSON 就是完整备份；换电脑时放回同一路径，打开就是原来的文库。")
     bullet("建议定期备份，比如每周拷一次，文件名带上日期。")
 
@@ -178,7 +189,8 @@ private func guideText(preset: ThemePreset) -> NSAttributedString {
     shortcut("⌘S", "保存")
     shortcut("⌘O", "导入 Markdown")
     shortcut("⌘E", "导出")
-    add("只剩这四个，其余全部靠点击：工具栏按钮、右键菜单、菜单栏。编辑动作照旧：⌘Z 撤销、⇧⌘Z 重做，⌘C / ⌘V / ⌘X / ⌘A 照常。",
+    shortcut("⌘F", "查找与替换")
+    add("只剩这五个，其余全部靠点击：工具栏按钮、右键菜单、菜单栏。编辑动作照旧：⌘Z 撤销、⇧⌘Z 重做，⌘C / ⌘V / ⌘X / ⌘A 照常。",
         font: guideNoteFont, color: note, before: 4, after: 2)
 
     // 页脚
