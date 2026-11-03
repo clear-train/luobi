@@ -146,13 +146,12 @@ extension EditorRoot {
         guard let item = statusItem else { return }
         let goal = doc.dailyGoal
         let wrote = doc.todayWritten
-        if let end = pomoEndAt {
-            let total = pomoIsBreak ? 300.0 : 1500.0
-            let left = max(0, end.timeIntervalSinceNow)
-            let p = 1 - left / total
+        if hasPomoSession {
+            let p = min(1, pomoElapsed / pomoDuration)
+            let color: NSColor = pomoIsOvertime ? .systemOrange : (pomoIsBreak ? .systemBlue : .systemRed)
             item.button?.image = NSImage.ring(progress: CGFloat(p),
-                                              color: pomoIsBreak ? .systemBlue : .systemRed,
-                                              size: 22, glyph: pomoIsBreak ? "☕" : "T")
+                                              color: color,
+                                              size: 22, glyph: pomoIsOvertime ? "+" : (pomoIsBreak ? "☕" : "T"))
             item.button?.attributedTitle = NSAttributedString(string: "")
             // 菜单栏上直接显示剩余时间——不用点开就能看
             item.button?.attributedTitle = NSAttributedString(
@@ -169,7 +168,11 @@ extension EditorRoot {
                                                   .foregroundColor: NSColor.secondaryLabelColor])
                 : NSAttributedString(string: "")
         }
-        let state = pomoEndAt == nil ? "idle" : (pomoIsBreak ? "break" : "focus")
+        let state: String
+        if !hasPomoSession { state = "idle" }
+        else if pomoIsBreak { state = pomoRunning ? "break-run" : "break-pause" }
+        else if pomoIsOvertime { state = "overtime" }
+        else { state = pomoRunning ? "focus-run" : "focus-pause" }
         if state != statusMenuState {
             statusMenuState = state
             rebuildStatusMenu()
@@ -181,10 +184,12 @@ extension EditorRoot {
     /// 每秒只改这几行的文字，不重建整个菜单（重建会把正打开的菜单打断）
     func updateStatusMenuDynamic() {
         if let it = statusPomoItem {
-            if pomoEndAt != nil {
-                it.title = "暂停（还剩 \(pomoRemainingText)）"
+            if !hasPomoSession {
+                it.title = "开始 \(doc.focusMinutes) 分钟专注"
+            } else if pomoRunning {
+                it.title = pomoIsOvertime ? "暂停（已超时 \(pomoOvertimeText)）" : "暂停（还剩 \(pomoRemainingText)）"
             } else {
-                it.title = "开始 25 分钟专注"
+                it.title = "继续（还剩 \(pomoRemainingText)）"
             }
         }
         statusGoalItem?.title = doc.dailyGoal > 0
@@ -194,9 +199,15 @@ extension EditorRoot {
     }
 
     var pomoRemainingText: String {
-        guard let end = pomoEndAt else { return "未开始" }
-        let left = max(0, Int(end.timeIntervalSinceNow.rounded(.up)))
-        return String(format: "%02d:%02d", left / 60, left % 60)
+        guard hasPomoSession else { return "未开始" }
+        let secs = Int(pomoRemaining.rounded(.up))
+        return String(format: "%02d:%02d", secs / 60, secs % 60)
+    }
+
+    /// 超时后的正计时，形如 "+03:20"
+    var pomoOvertimeText: String {
+        let secs = Int(pomoOvertime)
+        return String(format: "+%02d:%02d", secs / 60, secs % 60)
     }
 
     // MARK: 菜单（系统栏里那一份）
@@ -213,11 +224,11 @@ extension EditorRoot {
         }
 
         // 番茄
-        if pomoEndAt == nil {
-            add("开始 25 分钟专注", "startPomodoroFromMenu:")
+        if !hasPomoSession {
+            add("开始 \(doc.focusMinutes) 分钟专注", "startPomodoroFromMenu:")
         } else {
-            add("暂停（还剩 \(pomoRemainingText)）", "togglePomodoro:")
-            add(pomoIsBreak ? "跳过休息" : "提前休息", "skipToBreak:")
+            add(pomoRunning ? "暂停（还剩 \(pomoRemainingText)）" : "继续（还剩 \(pomoRemainingText)）", "togglePomodoro:")
+            add(pomoIsBreak ? "结束休息" : "提前休息", "skipToBreak:")
         }
         statusPomoItem = menu.items.first { $0.action != nil && $0.target === self }
 
@@ -238,9 +249,11 @@ extension EditorRoot {
         menu.addItem(.separator())
         add("设置今日写作目标…", "showGoalPanel:")
         add("写作统计…", "showStatsPanel:")
+        add("写作节奏…", "showRhythmPanel:")
         add("大纲板…", "showBoard:")
         add("人物一览…", "showCardsOverview:")
         menu.addItem(.separator())
+        add("番茄钟时长设置…", "showPomodoroSettings:")
         add("显示主窗口", "bringWindowToFront:")
         add("外观与字号…", "showThemePanel:")
         add("功能说明与使用指南…", "showGuide:")
@@ -249,15 +262,11 @@ extension EditorRoot {
         item.menu = menu
     }
 
-    @objc func startPomodoroFromMenu(_ sender: Any?) {
-        startPomodoro(isBreak: false)
-    }
-
     @objc func skipToBreak(_ sender: Any?) {
         if pomoIsBreak {
             closePomodoro()
         } else {
-            pausePomodoro()
+            closePomodoro()
             startPomodoro(isBreak: true)
         }
         refreshStatusItem()

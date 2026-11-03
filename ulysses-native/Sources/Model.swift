@@ -84,13 +84,17 @@ struct DocState: Codable {
     var fontSize: Double = 17
     var seenGuide: Bool = false     // 首次启动自动弹一次使用指南
     var indentChars: Int = 2           // 首行缩进几个字（0 = 不缩进），中文习惯是 2
-    var lineSpacing: Double = 13       // 行间距（17pt 下的基准值，随字号等比缩放）
-    var paragraphSpacing: Double = 12  // 段间距（同上）
+    var lineSpacing: Double = 7        // 行间距（17pt 下的基准值，随字号等比缩放）
+    var paragraphSpacing: Double = 0   // 段间距（正文用空行分段时，这里留 0 就够）（同上）
     var dailyGoal: Int = 0             // 每日目标字数，0 = 不设
     var dailyBase: [String: Int] = [:] // "2026-11-03" -> 当天开工时全书字数
     var dailyDone: [String: Int] = [:] // "2026-11-03" -> 当天最多写到过多少字
     var writeSeconds: [String: Int] = [:] // "2026-11-03" -> 当天真正在写的秒数
     var pomodoroDone: [String: Int] = [:] // "2026-11-03" -> 当天完成的番茄数
+    var focusMinutes: Int = 25            // 一个专注段多长
+    var breakMinutes: Int = 5             // 一段休息多长
+    var hourlyWords: [String: Int] = [:]  // "2026-11-03 21" -> 那个小时写了多少字
+    var peakWPM: Int = 0                  // 观测到的最快写作速度（字/分钟）
 
     init(sheets: [Sheet], activeId: String) {
         self.sheets = sheets
@@ -98,7 +102,7 @@ struct DocState: Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case sheets, activeId, typewriter, markdown, theme, goal, folders, sidebarVisible, fontSize, seenGuide, indentChars, lineSpacing, paragraphSpacing, dailyGoal, dailyBase, dailyDone, writeSeconds, pomodoroDone
+        case sheets, activeId, typewriter, markdown, theme, goal, folders, sidebarVisible, fontSize, seenGuide, indentChars, lineSpacing, paragraphSpacing, dailyGoal, dailyBase, dailyDone, writeSeconds, pomodoroDone, focusMinutes, breakMinutes, hourlyWords, peakWPM
     }
 
     /// 只用于读老数据：0.8 之前的「是否缩进」开关
@@ -125,14 +129,24 @@ struct DocState: Codable {
                   let on = try? legacy.decodeIfPresent(Bool.self, forKey: .indentParagraphs), on == false {
             indentChars = 0
         }
-        lineSpacing = try c.decodeIfPresent(Double.self, forKey: .lineSpacing) ?? 13
-        paragraphSpacing = try c.decodeIfPresent(Double.self, forKey: .paragraphSpacing) ?? 12
+        lineSpacing = try c.decodeIfPresent(Double.self, forKey: .lineSpacing) ?? 7
+        paragraphSpacing = try c.decodeIfPresent(Double.self, forKey: .paragraphSpacing) ?? 0
+        // 上一版默认是 13/12，会把"空行分段 + 段距"叠成三倍行距；
+        // 明显是旧默认值的直接迁移成新默认（用户手动调过的值不受影响）
+        if lineSpacing == 13 && paragraphSpacing == 12 {
+            lineSpacing = 7
+            paragraphSpacing = 0
+        }
         dailyGoal = try c.decodeIfPresent(Int.self, forKey: .dailyGoal) ?? 0
         dailyBase = try c.decodeIfPresent([String: Int].self, forKey: .dailyBase) ?? [:]
         dailyDone = try c.decodeIfPresent([String: Int].self, forKey: .dailyDone) ?? [:]
         writeSeconds = try c.decodeIfPresent([String: Int].self, forKey: .writeSeconds) ?? [:]
         seenGuide = try c.decodeIfPresent(Bool.self, forKey: .seenGuide) ?? false
         pomodoroDone = try c.decodeIfPresent([String: Int].self, forKey: .pomodoroDone) ?? [:]
+        focusMinutes = try c.decodeIfPresent(Int.self, forKey: .focusMinutes) ?? 25
+        breakMinutes = try c.decodeIfPresent(Int.self, forKey: .breakMinutes) ?? 5
+        hourlyWords = try c.decodeIfPresent([String: Int].self, forKey: .hourlyWords) ?? [:]
+        peakWPM = try c.decodeIfPresent(Int.self, forKey: .peakWPM) ?? 0
     }
 
     static func initial() -> DocState {
@@ -219,6 +233,12 @@ struct DocState: Codable {
 // 做法故意很朴素：记录「今天开工时全书多少字」，之后用当前总数去减。
 // 这样不用监听每一次敲键，删改也不会算错方向（删掉的字会从今日里扣回去）。
 
+func hourKey(_ date: Date = Date()) -> String {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd HH"
+    return f.string(from: date)
+}
+
 func dayKey(_ date: Date = Date()) -> String {
     let f = DateFormatter()
     f.dateFormat = "yyyy-MM-dd"
@@ -277,6 +297,46 @@ extension DocState {
     var todaySeconds: Int { writeSeconds[dayKey()] ?? 0 }
 
     /// 完成一个番茄（只记"专注"结束，休息不算）
+    /// 记一笔"这个小时写了多少字"
+    mutating func recordHourly(_ delta: Int) {
+        guard delta > 0 else { return }
+        let k = hourKey()
+        hourlyWords[k, default: 0] += delta
+        if hourlyWords.count > 24 * 90 {
+            let cutoff = dayKey(Date().addingTimeInterval(-90 * 86400))
+            hourlyWords = hourlyWords.filter { $0.key >= cutoff + " 00" }
+        }
+    }
+
+    /// 写作节奏：哪个小时写得最多、最快手速、峰值之后什么时候掉下来
+    func rhythm() -> RhythmStats {
+        var totals = [Int](repeating: 0, count: 24)
+        var daysWith = [Int](repeating: 0, count: 24)
+        for (k, v) in hourlyWords {
+            let parts = k.split(separator: " ")
+            guard parts.count == 2, let h = Int(parts[1]), h >= 0, h < 24 else { continue }
+            totals[h] += v
+            daysWith[h] += 1
+        }
+        var avgs = [Int](repeating: 0, count: 24)
+        for h in 0..<24 where daysWith[h] > 0 { avgs[h] = totals[h] / daysWith[h] }
+        let active = (0..<24).filter { daysWith[$0] > 0 }
+        let peak = active.max { avgs[$0] < avgs[$1] } ?? 21
+        let low = active.min { avgs[$0] < avgs[$1] } ?? 9
+        var inflection: Int? = nil
+        if avgs[peak] > 0 {
+            var h = peak
+            for _ in 0..<23 {
+                h = (h + 1) % 24
+                if daysWith[h] > 0, avgs[h] < avgs[peak] / 2 { inflection = h; break }
+            }
+        }
+        let observed = Set(hourlyWords.keys.compactMap { $0.split(separator: " ").first.map(String.init) }).count
+        return RhythmStats(totals: totals, averages: avgs, activeHours: active,
+                           peakHour: peak, lowHour: low, peakAvg: avgs[peak], lowAvg: avgs[low],
+                           inflectionHour: inflection, peakWPM: peakWPM, observedDays: observed)
+    }
+
     mutating func addPomodoro() {
         let key = dayKey()
         pomodoroDone[key] = (pomodoroDone[key] ?? 0) + 1
@@ -385,6 +445,20 @@ struct DayCount {
     let key: String      // 2026-11-03
     let date: Date
     let count: Int       // 那天最多写到过多少字
+}
+
+/// 写作节奏：按"一天里的第几个小时"聚合，回答"我什么时候写得动"
+struct RhythmStats {
+    var totals: [Int]        // 24 个整点，累计字数
+    var averages: [Int]      // 24 个整点，平均每次写到多少字
+    var activeHours: [Int]   // 有记录的小时
+    var peakHour: Int
+    var lowHour: Int
+    var peakAvg: Int
+    var lowAvg: Int
+    var inflectionHour: Int? // 峰值之后掉到一半以下的小时
+    var peakWPM: Int         // 最快手速（字/分钟）
+    var observedDays: Int
 }
 
 struct WriteStats {

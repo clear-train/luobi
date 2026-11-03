@@ -13,10 +13,13 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var focusMode = false
 
     // 番茄钟（实现见 Pomodoro.swift）
-    var pomoEndAt: Date?
     var pomoIsBreak = false
     var pomoTimer: Timer?
     var pomoButton: RingButton?
+    var pomoRunning = false
+    var pomoStartAt: Date?
+    var pomoSpent: TimeInterval = 0      // 暂停前累计的秒数
+    var pomoNotified = false             // "时间到"只提醒一次
     var goalRing: RingButton?
     var statusItem: NSStatusItem?
     var statusMenuState: String = ""
@@ -28,6 +31,8 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var lastActivityAt = Date()
     var sessionTimer: Timer?
     var sessionAccrued = 0
+    var lastSavedTotal = 0
+    var lastTickTotal = 0
     var readingMode = false
     var readingWasSidebarVisible = true
     var readingMonitor: Any? = nil
@@ -448,6 +453,12 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             sessionAccrued = 0
         }
         doc.recordDaily()
+        // 按小时记账：只记"新增"的正字数（删字不倒扣，免得把晚上的额度扣掉）
+        let nowTotal = doc.sheets.reduce(0) { $0 + statCJK($1.content) + statLatin($1.content) }
+        if lastSavedTotal > 0, nowTotal > lastSavedTotal {
+            doc.recordHourly(nowTotal - lastSavedTotal)
+        }
+        lastSavedTotal = nowTotal
         let ok = Vault.save(doc)
         // 单篇历史：正文改过才留一份（内部会与最新一份比对，重复就跳过）
         if ok, let cur = doc.sheet(id: doc.activeId) {

@@ -40,6 +40,15 @@ extension EditorRoot {
         guard let win = window, win.isKeyWindow, NSApp.isActive else { return }
         guard Date().timeIntervalSince(lastActivityAt) < 120 else { return }
         sessionAccrued += Int(EditorRoot.sessionTick)
+
+        // 顺手估一下手速：这 20 秒写了多少字 × 3 = 字/分钟；只记峰值
+        let total = doc.sheets.reduce(0) { $0 + statCJK($1.content) + statLatin($1.content) }
+        if lastTickTotal > 0, total > lastTickTotal {
+            let wpm = (total - lastTickTotal) * 3
+            if wpm > doc.peakWPM, wpm < 400 { doc.peakWPM = wpm }   // 400 以上是粘贴，不算手速
+        }
+        lastTickTotal = total
+
         if sessionAccrued >= 60 { flushSession() }
     }
 
