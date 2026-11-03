@@ -68,5 +68,40 @@ extension EditorRoot {
                 ], range: enclosing)
             }
         }
+
+        // 阅读模式下把标记符号藏起来（保留字符，只是看不见——不破坏正文和光标位置）
+        if readingMode { hideMarkers(storage, in: full) }
+    }
+
+    /// 把 # ** > - 这些标记本身变成透明。阅读时只该看到文字，不该看到语法。
+    private func hideMarkers(_ storage: NSTextStorage, in full: NSRange) {
+        let ns = storage.string as NSString
+        var ranges: [NSRange] = []
+        ns.enumerateSubstrings(in: full, options: [.byLines]) { line, _, enclosing, _ in
+            guard let line = line else { return }
+            let lead = line.prefix { $0 == " " || $0 == "\t" }.count
+            let t = line.trimmingCharacters(in: .whitespaces)
+            var len = 0
+            if t.hasPrefix("#") {
+                let h = t.prefix { $0 == "#" }.count
+                let after = t.dropFirst(h)
+                if h <= 6, after.isEmpty || after.hasPrefix(" ") {
+                    len = h + (after.hasPrefix(" ") ? 1 : 0)
+                }
+            } else if t.hasPrefix("> ") || t.hasPrefix("- ") || t.hasPrefix("* ") {
+                len = 2
+            }
+            if len > 0 {
+                ranges.append(NSRange(location: enclosing.location + lead, length: len))
+            }
+            var from = line.startIndex
+            while let a = line.range(of: "**", range: from..<line.endIndex) {
+                ranges.append(NSRange(location: enclosing.location + NSRange(a, in: line).location, length: 2))
+                from = a.upperBound
+            }
+        }
+        for r in ranges where r.length > 0 && NSMaxRange(r) <= storage.length {
+            storage.addAttribute(.foregroundColor, value: NSColor.clear, range: r)
+        }
     }
 }

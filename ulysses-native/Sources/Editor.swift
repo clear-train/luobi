@@ -11,6 +11,11 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// 启动时若自动从备份恢复过，或者刚手动备份过，在这条状态栏里说一句
     var startupNote: String? = Vault.lastRecoveryNote
     var focusMode = false
+    var readingMode = false
+    var readingWasSidebarVisible = true
+    var readingMonitor: Any? = nil
+    var readingExitButton: NSButton? = nil
+    var readingHint: NSTextField? = nil
     var sidebarWasVisible = true
     var focusExitButton = NSButton()
     var searchField = NSSearchField()
@@ -482,9 +487,9 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     /// 专注模式把正文收成一条居中的阅读栏（约 720pt 宽），避免字跑到屏幕两端
-    private func updateTextInsets() {
+    func updateTextInsets() {
         let w = bounds.width
-        if focusMode && w > 0 {
+        if (focusMode || readingMode) && w > 0 {
             let column = min(CGFloat(720), max(CGFloat(420), w - 160))
             textView.textContainerInset = NSSize(width: max(40, (w - column) / 2), height: 40)
         } else {
@@ -494,7 +499,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     override func layout() {
         super.layout()
-        if focusMode { updateTextInsets() }
+        if focusMode || readingMode { updateTextInsets() }
     }
 
     func applyFocusMode() {
@@ -514,6 +519,10 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     override func cancelOperation(_ sender: Any?) {
+        if readingMode {
+            toggleReading(nil)
+            return
+        }
         if focusMode {
             toggleFocus(nil)
             return
