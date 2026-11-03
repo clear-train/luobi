@@ -87,6 +87,7 @@ struct DocState: Codable {
 - 成书：把分组里的稿子按侧栏顺序拼成一整本，导出网页（双击就能看/打印）、Markdown 或 Word（.rtf，发给编辑直接能开）。
 - 写作目标：侧栏左下角点「写作目标」，设每天多少字；底部细进度条和状态栏会跟着涨，达标变绿。
 - 排序：拖动文稿可以调顺序（也能拖进分组）；不想拖就右键「上移一位 / 下移一位」。
+- 统计：侧栏左下角点「统计」，看最近 30 天每天写了多少字、连续写了多久。
 - 搜索：左上角搜索框搜**标题和正文**，结果显示命中片段，点一条直接跳到命中处。
 
 ## 你的字存在哪儿
@@ -159,6 +160,10 @@ extension DocState {
         if dailyBase.count > 21 {
             let keep = dailyBase.keys.sorted().suffix(14)
             dailyBase = dailyBase.filter { keep.contains($0.key) }
+        }
+        // 成就记录留得多一些（统计要画 30 天曲线），避免和基线一起被清掉
+        if dailyDone.count > 400 {
+            let keep = dailyDone.keys.sorted().suffix(180)
             dailyDone = dailyDone.filter { keep.contains($0.key) }
         }
     }
@@ -182,6 +187,65 @@ extension DocState {
             if done >= dailyGoal { streak += 1; cursor = cursor.addingTimeInterval(-86400) } else { break }
         }
         return streak
+    }
+}
+
+// MARK: - 写作统计
+
+struct DayCount {
+    let key: String      // 2026-11-03
+    let date: Date
+    let count: Int       // 那天最多写到过多少字
+}
+
+struct WriteStats {
+    var days: [DayCount] = []      // 最近 N 天，旧的在前
+    var activeDays: Int = 0        // 有记录的天数（写过字）
+    var longestStreak: Int = 0     // 最长连续写作天数
+    var totalWords: Int = 0        // 所有记录加起来
+    var monthWords: Int = 0        // 本月累计
+    var maxCount: Int = 0          // 用于图表缩放的峰值
+}
+
+extension DocState {
+    /// 汇总写作统计。days 控制曲线天数（30/90），其余指标始终基于全部记录。
+    func writeStats(days: Int = 30) -> WriteStats {
+        let cal = Calendar.current
+        var stats = WriteStats()
+
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        let sortedKeys = dailyDone.keys.sorted()
+        stats.activeDays = sortedKeys.filter { (dailyDone[$0] ?? 0) > 0 }.count
+        stats.totalWords = dailyDone.values.reduce(0, +)
+        stats.maxCount = dailyDone.values.max() ?? 0
+
+        let monthPrefix = String(dayKey().prefix(7))
+        stats.monthWords = dailyDone.filter { $0.key.hasPrefix(monthPrefix) }.values.reduce(0, +)
+
+        // 最长连续：从最早一天顺次扫，遇到断档就结算
+        var streak = 0
+        var prev: Date? = nil
+        for key in sortedKeys {
+            guard let d = df.date(from: key), (dailyDone[key] ?? 0) > 0 else { streak = 0; prev = nil; continue }
+            if let p = prev, let gap = cal.dateComponents([.day], from: p, to: d).day, gap == 1 {
+                streak += 1
+            } else {
+                streak = 1
+            }
+            stats.longestStreak = max(stats.longestStreak, streak)
+            prev = d
+        }
+
+        // 最近 N 天（含今天），没有记录的补 0，这样曲线不会断开
+        var list: [DayCount] = []
+        for i in stride(from: days - 1, through: 0, by: -1) {
+            let d = cal.date(byAdding: .day, value: -i, to: Date()) ?? Date()
+            let key = dayKey(d)
+            list.append(DayCount(key: key, date: d, count: dailyDone[key] ?? 0))
+        }
+        stats.days = list
+        return stats
     }
 }
 

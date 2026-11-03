@@ -173,6 +173,11 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         footGoal.controlSize = .small
         footGoal.font = NSFont.systemFont(ofSize: 10.5)
         footGoal.toolTip = "设定本篇的目标字数，底部会出现进度条"
+        let footStats = NSButton(title: "统计", target: self, action: Selector(("showStatsPanel:")))
+        footStats.bezelStyle = .texturedRounded
+        footStats.controlSize = .small
+        footStats.font = NSFont.systemFont(ofSize: 10.5)
+        footStats.toolTip = "最近 30 天的写作曲线（每天写了多少字）"
         let footGuide = NSButton(title: "功能说明", target: self, action: Selector(("showGuide:")))
         footGuide.bezelStyle = .texturedRounded
         footGuide.controlSize = .small
@@ -180,6 +185,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         footGuide.toolTip = "打开使用指南（也能在「帮助」菜单里找到）"
         sidebarFooter.addArrangedSubview(footHint)
         sidebarFooter.addArrangedSubview(footGoal)
+        sidebarFooter.addArrangedSubview(footStats)
         sidebarFooter.addArrangedSubview(footGuide)
         sidebarFooter.setHuggingPriority(.defaultLow, for: .horizontal)
 
