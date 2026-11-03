@@ -6,6 +6,7 @@ import AppKit
 struct DocState: Codable {
     var title: String = "未命名"
     var content: String = "第一次打开。\n\n在下面开始写你的第一章吧。"
+    var typewriter: Bool = true
 }
 
 enum Vault {
@@ -145,6 +146,9 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             guard let self = self else { return }
             self.window?.makeFirstResponder(self.textView)
             self.textView.setSelectedRange(NSRange(location: self.doc.content.utf16.count, length: 0))
+            if self.doc.typewriter {
+                self.textView.centerSelectionInVisibleArea(nil)
+            }
         }
     }
 
@@ -184,6 +188,22 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     func textDidChange(_ notification: Notification) { // 正文变化
         doc.content = textView.string
         markDirty()
+        if doc.typewriter {
+            DispatchQueue.main.async { [weak self] in
+                self?.textView.centerSelectionInVisibleArea(nil)
+            }
+        }
+    }
+
+    // MARK: 菜单动作（走响应链：menuItem.target=nil，谁在响应链顶谁接）
+
+    @objc func toggleTypewriter(_ sender: Any?) {
+        doc.typewriter.toggle()
+        persistNow()
+    }
+
+    @objc func saveNow(_ sender: Any?) {
+        persistNow()
     }
 }
 
@@ -205,7 +225,17 @@ win.makeKeyAndOrderFront(nil)
 let main = NSMenu()
 for (name, items) in [
     ("应用", [
-        NSMenuItem(title: "退出 Ulysses Native", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        NSMenuItem(title: "退出 Ulysses Native", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"),
+    ]),
+    ("文件", [
+        NSMenuItem(title: "立即保存", action: Selector(("saveNow:")), keyEquivalent: "s"),
+    ]),
+    ("视图", [
+        {
+            let i = NSMenuItem(title: "打字机居中", action: Selector(("toggleTypewriter:")), keyEquivalent: "t")
+            i.keyEquivalentModifierMask = [.command, .option]
+            return i
+        }(),
     ]),
     ("编辑", [
         NSMenuItem(title: "撤销", action: Selector(("undo:")), keyEquivalent: "z"),
