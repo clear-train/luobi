@@ -35,7 +35,7 @@ final class SideItem: NSObject {
     }
 }
 
-extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate {
+extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
 
     // MARK: 数据
 
@@ -180,13 +180,7 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate {
         guard let it = item as? SideItem else { return false }
         // 点分组 = 展开/收起，不改变当前文稿
         if it.isFolder {
-            if outlineView.isItemExpanded(it) {
-                outlineView.collapseItem(it)
-                setExpanded(it.id, false)
-            } else {
-                outlineView.expandItem(it)
-                setExpanded(it.id, true)
-            }
+            animateFolder(it, open: !outlineView.isItemExpanded(it))
             return false
         }
         return true
@@ -208,6 +202,17 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate {
     func outlineViewItemDidCollapse(_ notification: Notification) {
         guard let it = notification.userInfo?["NSObject"] as? SideItem else { return }
         setExpanded(it.id, false)
+    }
+
+    /// 展开/收起带一点动画，像抽屉被拉开，而不是"啪"地多出几行
+    func animateFolder(_ it: SideItem, open: Bool) {
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.18
+            ctx.allowsImplicitAnimation = true
+            if open { table.expandItem(it) } else { table.collapseItem(it) }
+            table.layoutSubtreeIfNeeded()
+        }, completionHandler: nil)
+        setExpanded(it.id, open)
     }
 
     private func setExpanded(_ id: String, _ open: Bool) {
@@ -261,13 +266,108 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate {
 
     func makeSidebarMenu() -> NSMenu {
         let m = NSMenu()
+        m.delegate = self
         m.addItem(withTitle: "新建文稿", action: #selector(addSheet(_:)), keyEquivalent: "")
         m.addItem(withTitle: "新建分组", action: #selector(addFolder(_:)), keyEquivalent: "")
         m.addItem(.separator())
+        m.addItem(withTitle: "在此分组新建文稿", action: #selector(addSheetHere(_:)), keyEquivalent: "")
+        let move = NSMenuItem(title: "移动到分组", action: nil, keyEquivalent: "")
+        move.submenu = NSMenu()
+        m.addItem(move)
+        m.addItem(.separator())
         m.addItem(withTitle: "重命名…", action: #selector(renameSelected(_:)), keyEquivalent: "")
         m.addItem(withTitle: "删除", action: #selector(deleteSelected(_:)), keyEquivalent: "")
-        for it in m.items { it.target = self }
+        for it in m.items where it.action != nil { it.target = self }
         return m
+    }
+
+    /// 菜单弹出前按点中的对象裁剪可用项，避免"点了没反应"
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        let it = contextSideItem()
+        let isFolder = it?.isFolder ?? false
+        for item in menu.items {
+            switch item.title {
+            case "在此分组新建文稿":
+                item.isHidden = !isFolder
+            case "移动到分组":
+                item.isHidden = it?.sheet == nil
+                if let sub = item.submenu, let cur = it?.sheet {
+                    sub.removeAllItems()
+                    let root = NSMenuItem(title: "最外层（不归任何分组）", action: #selector(moveSheetToMenu(_:)), keyEquivalent: "")
+                    root.target = self
+                    root.representedObject = NSNull()
+                    sub.addItem(root)
+                    if !doc.folders.isEmpty { sub.addItem(.separator()) }
+                    for f in allFoldersSorted() {
+                        let mi = NSMenuItem(title: folderPath(f.id), action: #selector(moveSheetToMenu(_:)), keyEquivalent: "")
+                        mi.target = self
+                        mi.representedObject = f.id
+                        mi.state = (cur.folderId == f.id) ? .on : .off
+                        sub.addItem(mi)
+                    }
+                }
+            case "重命名…", "删除":
+                item.isHidden = (it == nil)
+            default:
+                break
+            }
+        }
+    }
+
+    /// 深层分组按"小说 / 第一卷"这种路径排，方便在子菜单里认
+    func allFoldersSorted() -> [Folder] {
+        var out: [Folder] = []
+        func walk(_ parent: String?) {
+            for f in doc.folders.filter({ $0.parentId == parent }) {
+                out.append(f)
+                walk(f.id)
+            }
+        }
+        walk(nil)
+        return out
+    }
+
+    func folderPath(_ id: String) -> String {
+        var parts: [String] = []
+        var cur: String? = id
+        var guardCount = 0
+        while let c = cur, guardCount < 32, let f = doc.folders.first(where: { $0.id == c }) {
+            parts.insert(f.name, at: 0)
+            cur = f.parentId
+            guardCount += 1
+        }
+        if parts.count > 1 { parts[0] = parts[0] + " /" }
+        return parts.joined(separator: " ")
+    }
+
+    /// 右键「在此分组新建文稿」
+    @objc func addSheetHere(_ sender: Any?) {
+        var folder: String? = nil
+        if let it = contextSideItem(), let f = it.folder {
+            folder = f.id
+            animateFolder(it, open: true)
+        }
+        var t = "未命名"
+        var n = 2
+        while doc.sheets.contains(where: { $0.title == t }) { t = "未命名 \(n)"; n += 1 }
+        let s = Sheet(id: UUID().uuidString, title: t, content: "", folderId: folder)
+        doc.sheets.append(s)
+        switchTo(s.id)
+    }
+
+    /// 右键「移动到分组」里的具体一项
+    @objc func moveSheetToMenu(_ sender: NSMenuItem) {
+        guard let it = contextSideItem(), let s = it.sheet,
+              let i = doc.sheets.firstIndex(where: { $0.id == s.id }) else { return }
+        var target: String? = nil
+        if let raw = sender.representedObject as? String { target = raw }
+        doc.sheets[i].folderId = target
+        persistNow()
+        refreshTable()
+        if let f = target, let folderRow = row(forID: f), let folderItem = table.item(atRow: folderRow) as? SideItem {
+            animateFolder(folderItem, open: true)
+            if let r = row(forID: s.id) { table.selectRowIndexes(IndexSet(integer: r), byExtendingSelection: false) }
+        }
     }
 
     // MARK: 分组 / 重命名 / 删除

@@ -111,3 +111,29 @@ open build/UlyssesNative.app
 ## 写在后面
 
 这是为「记录自己」做的小工具：不追功能，不卷同步，不打扰你。别被上面这些功能绑架——分组可以不建，主题可以不换，快捷键可以不用。先写起来，工具的事情交给工具。
+
+## 打包与发布
+
+仓库里带了打包脚本，一条命令出安装包：
+
+```bash
+./tools/release.sh            # 只在本地打包
+./tools/release.sh --publish  # 打包并顺手发一个 GitHub Release
+```
+
+产物在 `dist/`：
+
+| 文件 | 用途 |
+| --- | --- |
+| `UlyssesNative-<版本>-macOS.zip` | 解压后把 App 拖进「应用程序」即可，发给别人也用这个 |
+| `UlyssesNative-<版本>.dmg` | 双击挂载、拖进 Applications（部分受限环境做不了 dmg，会自动跳过） |
+
+版本号只有一个真相：`Info.plist` 里的 `CFBundleShortVersionString` / `CFBundleVersion`，发版前改这里。
+
+安装到别人机器上时：
+1. 解压 zip，把 `UlyssesNative.app` 拖进「应用程序」；
+2. 第一次打开要**右键 → 打开**（没做 Apple 公证，双击会被 Gatekeeper 拦一次）；
+   或在终端执行 `xattr -dr com.apple.quarantine "/Applications/UlyssesNative.app"`；
+3. 文稿库仍在 `~/Library/Application Support/UlyssesNative/state.json`，换机拷这个文件就行。
+
+> 从终端或别的受限环境里启动 App 时，系统可能禁止它写 Application Support，状态栏会提示「保存失败」。正常从访达双击启动没有这个问题。

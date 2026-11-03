@@ -85,8 +85,11 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         table.addTableColumn(col)
         table.outlineTableColumn = col
         table.headerView = nil
-        table.rowHeight = 32
-        table.indentationPerLevel = 14
+        table.rowHeight = 28
+        table.indentationPerLevel = 12
+        if #available(macOS 11.0, *) { table.style = .sourceList }
+        table.selectionHighlightStyle = .sourceList
+        table.setDraggingSourceOperationMask(.move, forLocal: true)
         table.allowsMultipleSelection = false
         table.dataSource = self
         table.delegate = self
