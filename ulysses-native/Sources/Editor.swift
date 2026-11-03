@@ -13,6 +13,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
     var plusButton = NSButton()
     var sidebarScroll = NSScrollView()
     var table = NSTableView()
+    var toolStack = NSStackView()
 
     var saveTimer: Timer? = nil
     var styleTimer: Timer? = nil
@@ -29,7 +30,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
 
     required init?(coder: NSCoder) { fatalError("不走 storyboard") }
 
-    let baseFont = NSFont.systemFont(ofSize: 17)
+    let baseFont = Typo.body
 
     private func buildViews() {
         wantsLayer = true
@@ -53,7 +54,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
         table = NSTableView()
         table.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("t")))
         table.headerView = nil
-        table.rowHeight = 30
+        table.rowHeight = 34
         table.allowsMultipleSelection = false
         table.dataSource = self
         table.delegate = self
@@ -68,7 +69,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
         titleInput.isBordered = false
         titleInput.drawsBackground = false
         titleInput.placeholderString = "给这篇起个名字"
-        titleInput.font = NSFont.boldSystemFont(ofSize: 22)
+        titleInput.font = Typo.bold(22)
         titleInput.delegate = self
         titleInput.translatesAutoresizingMaskIntoConstraints = false
 
@@ -81,26 +82,39 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
         textView.usesFontPanel = false
         textView.string = doc.sheet(id: doc.activeId)?.content ?? ""
         textView.font = baseFont
+        textView.typingAttributes = Typo.bodyAttributes
+        textView.defaultParagraphStyle = Typo.bodyParagraph
+        textView.insertionPointColor = .secondaryLabelColor
         textView.delegate = self
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
-        textView.textContainerInset = NSSize(width: 24, height: 24)
+        textView.textContainerInset = NSSize(width: 40, height: 28)
+        textView.textContainer?.widthTracksTextView = true
         scrollView.documentView = textView
 
         barLabel.font = NSFont.systemFont(ofSize: 11)
         barLabel.textColor = .secondaryLabelColor
         barLabel.translatesAutoresizingMaskIntoConstraints = false
 
+        buildToolbar()
+
         addSubview(searchField)
         addSubview(plusButton)
         addSubview(sidebarScroll)
         addSubview(titleInput)
+        addSubview(toolStack)
         addSubview(scrollView)
         addSubview(barLabel)
         refreshBar()
+
+        // 可插模块（动态派发：对应模块文件不存在时静默跳过，不破坏编译）
+        for sel in ["installTheme", "installGoalBar"] as [String] {
+            let s = Selector(sel + ":")
+            if responds(to: s) { perform(s, with: nil) }
+        }
 
         NSLayoutConstraint.activate([
             searchField.topAnchor.constraint(equalTo: topAnchor, constant: 10),
@@ -117,7 +131,11 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
 
             titleInput.topAnchor.constraint(equalTo: topAnchor, constant: 10),
             titleInput.leadingAnchor.constraint(equalTo: sidebarScroll.trailingAnchor, constant: 20),
-            titleInput.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
+            titleInput.trailingAnchor.constraint(equalTo: toolStack.leadingAnchor, constant: -12),
+
+            toolStack.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            toolStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            toolStack.heightAnchor.constraint(equalToConstant: 24),
 
             scrollView.topAnchor.constraint(equalTo: titleInput.bottomAnchor, constant: 6),
             scrollView.leadingAnchor.constraint(equalTo: titleInput.leadingAnchor),
@@ -138,6 +156,33 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
             let end = (self.textView.string as NSString).length
             self.textView.setSelectedRange(NSRange(location: end, length: 0))
             if self.doc.typewriter { self.textView.centerSelectionInVisibleArea(nil) }
+        }
+    }
+
+    // MARK: 顶部工具栏（可见的按钮，不依赖菜单）
+
+    private func buildToolbar() {
+        let specs: [(String, String)] = [
+            ("新建", "addSheet:"),
+            ("导入", "importMDFiles:"),
+            ("导出", "exportActiveSheet:"),
+            ("打字机", "toggleTypewriter:"),
+            ("排版", "toggleMarkdown:"),
+            ("主题", "toggleTheme:"),
+            ("目标", "setGoalDialog:"),
+            ("指南", "showGuide:"),
+        ]
+        toolStack = NSStackView()
+        toolStack.orientation = .horizontal
+        toolStack.spacing = 6
+        toolStack.translatesAutoresizingMaskIntoConstraints = false
+        for (title, sel) in specs {
+            let b = NSButton(title: title, target: self, action: Selector((sel)))
+            b.bezelStyle = .inline
+            b.controlSize = .small
+            b.font = NSFont.systemFont(ofSize: 11)
+            b.isBordered = true
+            toolStack.addArrangedSubview(b)
         }
     }
 
@@ -207,6 +252,9 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
             s += " · " + (saved ? "已自动保存" : "保存失败")
         }
         barLabel.stringValue = s
+        // 仪表模块接上后刷新进度
+        let sel = Selector(("refreshGoalProgress:"))
+        if responds(to: sel) { perform(sel, with: nil) }
     }
 
     // MARK: 委托回调

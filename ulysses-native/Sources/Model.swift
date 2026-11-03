@@ -14,10 +14,45 @@ struct DocState: Codable {
     var activeId: String
     var typewriter: Bool = true
     var markdown: Bool = true
+    var theme: String = "paper"   // paper | deep
+    var goal: Int = 0             // 目标总字数，0=未启用
 
     static func initial() -> DocState {
         let s = Sheet(id: UUID().uuidString, title: "第一章", content: "开始写。")
-        return DocState(sheets: [s], activeId: s.id)
+        let guide = Sheet(id: UUID().uuidString, title: "使用指南", content: """
+# 欢迎使用 Ulysses Native
+
+这是一个把「写字」放在第一位的本地写作软件。下面是最短的上手路径。
+
+## 三步开始
+
+1. 左边点 + 号，新建一篇。
+2. 直接把想法敲进来，不用管格式。
+3. 停笔 0.8 秒会自动保存，也可以随时按 ⌘S。
+
+## 你会用到的几个开关
+
+- 打字机：让正在写的这一行始终停在屏幕中间，眼睛不用追着文字跑。
+- 排版：# 开头是标题，**两边两个星号**是加粗，> 开头是引用。
+- 主题：羊皮纸 / 深夜两套，白天写、夜里写都舒服。
+- 目标：给自己设一个字数目标，底部的细条会一点点长满，达标变绿。
+
+## 你的字存在哪儿
+
+~/Library/Application Support/UlyssesNative/state.json
+
+这是唯一的数据文件。想备份，复制它就行；想换电脑，把它带过去。
+
+## 快捷键
+
+⌘N 新建　⌘S 保存　⌘O 导入　⌘E 导出
+⌥⌘M 排版开关　⌥⌘Y 主题　⌥⌘G 目标
+
+写坏了不要紧：⌘Z 撤销，删文稿会先问你一次。
+
+去写吧。第一篇不必好看。
+""")
+        return DocState(sheets: [s, guide], activeId: s.id)
     }
 
     func sheet(id: String) -> Sheet? { sheets.first { $0.id == id } }

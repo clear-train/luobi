@@ -1,14 +1,7 @@
 import AppKit
 
-// 标题字号档位（extension 不能存属性，用文件级缓存代替）
-private let _cachedHeadingFonts: [NSFont] = [
-    NSFont.boldSystemFont(ofSize: 26),
-    NSFont.boldSystemFont(ofSize: 23),
-    NSFont.boldSystemFont(ofSize: 20),
-    NSFont.boldSystemFont(ofSize: 18),
-    NSFont.boldSystemFont(ofSize: 17),
-    NSFont.boldSystemFont(ofSize: 16),
-]
+// 标题字号档位交给 Typography 统一管理（衬线 + 粗细一致）
+private let _cachedHeadingFonts: [NSFont] = (1...6).map { Typo.heading($0) }
 
 // MARK: - 排版引擎：Markdown → 文本属性
 
@@ -25,13 +18,10 @@ extension EditorRoot {
         let storage = textView.textStorage!
         let full = NSRange(location: 0, length: storage.length)
         guard doc.markdown else {
-            storage.setAttributes([.font: baseFont], range: full)
+            storage.setAttributes(Typo.bodyAttributes, range: full)
             return
         }
-        storage.setAttributes([
-            .font: baseFont,
-            .foregroundColor: NSColor.labelColor,
-        ], range: full)
+        storage.setAttributes(Typo.bodyAttributes, range: full)
 
         let ns = storage.string as NSString
         if full.length == 0 { return }
@@ -45,11 +35,9 @@ extension EditorRoot {
             if hashCount >= 1 && hashCount <= 6 {
                 let rest = trimmed.dropFirst(hashCount)
                 if rest.isEmpty || rest.hasPrefix(" ") || rest.hasPrefix("\t") {
-                    let para = NSMutableParagraphStyle()
-                    para.paragraphSpacing = 8
                     storage.addAttributes([
                         .font: _cachedHeadingFonts[hashCount - 1],
-                        .paragraphStyle: para,
+                        .paragraphStyle: Typo.headingParagraph(),
                     ], range: enclosing)
                     return
                 }
@@ -63,7 +51,7 @@ extension EditorRoot {
                     let r = NSRange(inner, in: line)
                     let shifted = NSRange(location: enclosing.location + r.location, length: r.length)
                     if shifted.length > 0 {
-                        storage.addAttributes([.font: NSFont.boldSystemFont(ofSize: 17)], range: shifted)
+                        storage.addAttributes([.font: Typo.bold(17)], range: shifted)
                     }
                     searchStart = close.upperBound
                 } else {

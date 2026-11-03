@@ -30,9 +30,11 @@ extension EditorRoot {
                 let f = NSTextField(labelWithString: "")
                 f.identifier = cellID
                 f.font = NSFont.systemFont(ofSize: 13)
+                f.alignment = .center
                 f.lineBreakMode = .byTruncatingTail
                 return f
             }()
+        tf.alignment = .center
         let s = filtered[row]
         tf.stringValue = s.title.isEmpty ? "未命名" : s.title
         tf.textColor = s.id == doc.activeId ? .labelColor : .secondaryLabelColor

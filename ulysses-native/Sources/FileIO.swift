@@ -141,4 +141,10 @@ extension EditorRoot {
         }
         switchTo(nextId)   // 自带 refreshTable + persistNow
     }
+
+    /// 在 Finder 里打开文稿库目录（帮助菜单）
+    @objc func openVaultFolder(_ sender: Any?) {
+        Vault.ensure()
+        NSWorkspace.shared.open(Vault.dir)
+    }
 }

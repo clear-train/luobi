@@ -49,10 +49,24 @@ for (name, items) in [
             i.keyEquivalentModifierMask = [.command, .option]
             return i
         }(),
+        {
+            let i = NSMenuItem(title: "切换主题（羊皮纸/深夜）", action: Selector(("toggleTheme:")), keyEquivalent: "y")
+            i.keyEquivalentModifierMask = [.command, .option]
+            return i
+        }(),
+        {
+            let i = NSMenuItem(title: "设定写作目标字数…", action: Selector(("setGoalDialog:")), keyEquivalent: "g")
+            i.keyEquivalentModifierMask = [.command, .option]
+            return i
+        }(),
     ]),
     ("窗口", [
         NSMenuItem(title: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"),
         NSMenuItem(title: "关闭", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"),
+    ]),
+    ("帮助", [
+        NSMenuItem(title: "使用指南", action: Selector(("showGuide:")), keyEquivalent: "/"),
+        NSMenuItem(title: "打开文稿库文件夹", action: Selector(("openVaultFolder:")), keyEquivalent: ""),
     ]),
 ] as [(String, [NSMenuItem])] {
     let root = NSMenuItem()
