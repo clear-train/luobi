@@ -97,13 +97,24 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
 
         barLabel.font = NSFont.systemFont(ofSize: 11)
         barLabel.textColor = .secondaryLabelColor
+        barLabel.isBordered = false
+        barLabel.isEditable = false
+        barLabel.isSelectable = false
+        barLabel.drawsBackground = false
+        barLabel.alignment = .left
         barLabel.translatesAutoresizingMaskIntoConstraints = false
 
         buildToolbar()
 
+        // 侧栏与正文之间的一条细分隔线（约束在主约束块里，避免引用尚未入树的视图）
+        let divider = NSBox()
+        divider.boxType = .separator
+        divider.translatesAutoresizingMaskIntoConstraints = false
+
         addSubview(searchField)
         addSubview(plusButton)
         addSubview(sidebarScroll)
+        addSubview(divider)
         addSubview(titleInput)
         addSubview(toolStack)
         addSubview(scrollView)
@@ -117,6 +128,11 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
         }
 
         NSLayoutConstraint.activate([
+            divider.leadingAnchor.constraint(equalTo: sidebarScroll.trailingAnchor, constant: 8),
+            divider.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            divider.bottomAnchor.constraint(equalTo: barLabel.topAnchor, constant: -6),
+            divider.widthAnchor.constraint(equalToConstant: 1),
+
             searchField.topAnchor.constraint(equalTo: topAnchor, constant: 10),
             searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             searchField.widthAnchor.constraint(equalToConstant: 170),
@@ -145,6 +161,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
             barLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
             barLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
             barLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+            barLabel.heightAnchor.constraint(equalToConstant: 16),
         ])
 
         applyMarkdownStyling()
@@ -178,7 +195,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
         toolStack.translatesAutoresizingMaskIntoConstraints = false
         for (title, sel) in specs {
             let b = NSButton(title: title, target: self, action: Selector((sel)))
-            b.bezelStyle = .inline
+            b.bezelStyle = .texturedRounded
             b.controlSize = .small
             b.font = NSFont.systemFont(ofSize: 11)
             b.isBordered = true

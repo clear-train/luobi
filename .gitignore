@@ -1,4 +1,10 @@
+.tmp-oc/
+.tmp-dsh/
+.tmp-codex/
+word-game/.tmp-codex/
+
+# 编译产物与本地缓存
+.modulecache/
+*/build/
+ulysses-native/preview.png
 .DS_Store
-ulysses-app/build/
-ulysses-app/.modulecache/
-*.out

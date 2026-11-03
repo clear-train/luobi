@@ -32,6 +32,13 @@ extension EditorRoot {
         scrollView.backgroundColor = bg
         scrollView.drawsBackground = true
 
+        // --- 整窗同色：标题区/侧栏与正文连成一张纸，靠分隔线区隔层次 ---
+        wantsLayer = true
+        layer?.backgroundColor = bg.cgColor
+        sidebarScroll.backgroundColor = bg
+        sidebarScroll.drawsBackground = true
+        table.backgroundColor = bg
+
         // --- 正文前景 ---
         // deep：显式下发 .textColor（在 darkAqua 窗口下解析为浅色，
         //       避免浅色系统外观下黑字融进深夜底）。
