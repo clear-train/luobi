@@ -75,6 +75,7 @@ for (name, items) in [
         NSMenuItem(title: "今日写作目标…", action: Selector(("showGoalPanel:")), keyEquivalent: ""),
         NSMenuItem(title: "写作统计…", action: Selector(("showStatsPanel:")), keyEquivalent: ""),
         NSMenuItem(title: "人物一览…", action: Selector(("showCardsOverview:")), keyEquivalent: ""),
+        NSMenuItem(title: "人物关系图…", action: Selector(("showRelationGraph:")), keyEquivalent: ""),
     ]),
     ("窗口", [
         NSMenuItem(title: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"),
