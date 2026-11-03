@@ -150,6 +150,9 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         (textView as? CardTextView)?.cardClickHandler = { [weak self] p in
             self?.handleCardClick(at: p) ?? false
         }
+        (textView as? CardTextView)?.cardCreateHandler = { [weak self] name in
+            self?.handleCreateCard(from: name)
+        }
         scrollView.documentView = textView
 
         barLabel.font = NSFont.systemFont(ofSize: 11)

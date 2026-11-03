@@ -156,7 +156,7 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
         updatingTable = false
     }
 
-    private func row(forID id: String) -> Int? {
+    func row(forID id: String) -> Int? {
         for r in 0..<table.numberOfRows {
             if let it = table.item(atRow: r) as? SideItem, it.id == id { return r }
         }

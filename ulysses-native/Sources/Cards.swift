@@ -14,6 +14,8 @@ final class FlippedStackView: NSView {
 /// 带"⌘ 点名字"能力的正文视图
 final class CardTextView: NSTextView {
     var cardClickHandler: ((NSPoint) -> Bool)?
+    /// 选中一段文字后右键「用这段文字建人物卡」
+    var cardCreateHandler: ((String) -> Void)?
 
     override func mouseDown(with event: NSEvent) {
         if event.modifierFlags.contains(.command) {
@@ -21,6 +23,26 @@ final class CardTextView: NSTextView {
             if cardClickHandler?(p) == true { return }
         }
         super.mouseDown(with: event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let m = super.menu(for: event) ?? NSMenu()
+        let selected = (string as NSString).substring(with: selectedRange())
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !selected.isEmpty, !selected.contains("\n") {
+            let shown = selected.count > 8 ? String(selected.prefix(8)) + "…" : selected
+            m.addItem(.separator())
+            let item = NSMenuItem(title: "用「\(shown)」建人物卡", action: #selector(createCardFromSelection(_:)), keyEquivalent: "")
+            item.target = self
+            m.addItem(item)
+        }
+        return m
+    }
+
+    @objc private func createCardFromSelection(_ sender: Any?) {
+        let selected = (string as NSString).substring(with: selectedRange())
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        cardCreateHandler?(selected)
     }
 }
 
@@ -196,5 +218,166 @@ extension EditorRoot {
         pop.contentViewController = vc
         pop.contentSize = box.frame.size
         pop.show(relativeTo: screenRect, of: textView, preferredEdge: .maxY)
+    }
+}
+
+// MARK: - 选中文字建卡 + 人物一览
+
+/// 一览里的一行：整行可点
+final class CardRowView: NSView {
+    var onClick: (() -> Void)?
+    override func mouseDown(with event: NSEvent) { onClick?() }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+}
+
+extension EditorRoot {
+
+    /// 正文右键「用「X」建人物卡」的落点：校验 → 建卡 → 直接打开编辑面板
+    func handleCreateCard(from raw: String) {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        guard name.count <= 12 else {
+            startupNote = "选中的文字太长（上限 12 字），先选名字本身"
+            refreshBar()
+            return
+        }
+        if doc.cardSheet(named: name) != nil {
+            startupNote = "已经有「\(name)」这张卡了"
+            refreshBar()
+            return
+        }
+        let folder = doc.sheet(id: doc.activeId)?.folderId
+        let s = Sheet(id: UUID().uuidString, title: name, content: "",
+                      updatedAt: Date().timeIntervalSince1970, folderId: folder,
+                      card: CardData(name: name))
+        doc.sheets.append(s)
+        doc.activeId = s.id
+        refreshTable()
+        persistNow()
+        switchTo(s.id)
+        editCard(id: s.id)
+    }
+
+    /// 所有卡片按分组归拢，用于「人物一览」
+    func cardsGrouped() -> [(String, [Sheet])] {
+        var out: [(String, [Sheet])] = []
+        func walk(_ parent: String?, path: String) {
+            for f in doc.childFolders(of: parent) {
+                let list = doc.sheets(in: f.id).filter { $0.card != nil }
+                let label = path.isEmpty ? f.name : path + " / " + f.name
+                if !list.isEmpty { out.append((label, list)) }
+                walk(f.id, path: label)
+            }
+        }
+        walk(nil, path: "")
+        let loose = doc.sheets(in: nil).filter { $0.card != nil }
+        if !loose.isEmpty { out.append(("未归组", loose)) }
+        return out
+    }
+
+    @objc func showCardsOverview(_ sender: Any?) {
+        let groups = cardsGrouped()
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 680, height: 520),
+                            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        panel.title = "人物一览 · \(doc.cardSheets.count) 张"
+        panel.isReleasedWhenClosed = false
+        let preset = ThemePresets.preset(doc.theme)
+        panel.backgroundColor = preset.bg
+
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.drawsBackground = false
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        if groups.isEmpty {
+            let tip = NSTextField(labelWithString: "还没有人物卡片。\n在正文里选中一个名字 → 右键 → 建人物卡，或菜单「文件 → 新建人物卡」。")
+            tip.font = NSFont.systemFont(ofSize: 13)
+            tip.textColor = preset.text.withAlphaComponent(0.7)
+            tip.maximumNumberOfLines = 0
+            stack.addArrangedSubview(tip)
+        }
+
+        for (label, list) in groups {
+            let head = NSTextField(labelWithString: label)
+            head.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+            head.textColor = preset.text.withAlphaComponent(0.55)
+            stack.addArrangedSubview(head)
+            for s in list {
+                let row = CardRowView()
+                row.wantsLayer = true
+                row.translatesAutoresizingMaskIntoConstraints = false
+                row.onClick = { [weak self, weak panel] in
+                    guard let self = self else { return }
+                    self.doc.activeId = s.id
+                    self.refreshTable()
+                    self.switchTo(s.id)
+                    if let r = self.row(forID: s.id) {
+                        self.table.selectRowIndexes(IndexSet(integer: r), byExtendingSelection: false)
+                    }
+                    panel?.close()
+                }
+
+                let icon = NSImageView()
+                icon.image = NSImage(systemSymbolName: "person.crop.circle", accessibilityDescription: "人物")
+                icon.translatesAutoresizingMaskIntoConstraints = false
+                let nm = NSTextField(labelWithString: (s.card?.name.isEmpty == false ? s.card!.name : s.title))
+                nm.font = NSFont.systemFont(ofSize: 13.5, weight: .medium)
+                nm.textColor = preset.text
+                nm.translatesAutoresizingMaskIntoConstraints = false
+                let rel = NSTextField(labelWithString: s.card?.relation ?? "")
+                rel.font = NSFont.systemFont(ofSize: 11.5)
+                rel.textColor = preset.text.withAlphaComponent(0.6)
+                rel.translatesAutoresizingMaskIntoConstraints = false
+                rel.lineBreakMode = .byTruncatingTail
+
+                row.addSubview(icon); row.addSubview(nm); row.addSubview(rel)
+                NSLayoutConstraint.activate([
+                    row.widthAnchor.constraint(equalToConstant: 600),
+                    row.heightAnchor.constraint(equalToConstant: 34),
+                    icon.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 6),
+                    icon.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+                    icon.widthAnchor.constraint(equalToConstant: 16),
+                    icon.heightAnchor.constraint(equalToConstant: 16),
+                    nm.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
+                    nm.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+                    rel.leadingAnchor.constraint(equalTo: nm.trailingAnchor, constant: 10),
+                    rel.trailingAnchor.constraint(lessThanOrEqualTo: row.trailingAnchor, constant: -8),
+                    rel.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+                ])
+                stack.addArrangedSubview(row)
+            }
+        }
+
+        // 滚动视图默认原点在左下，套一层 flipped 容器，内容才会从顶部开始排
+        let container = FlippedStackView()
+        container.wantsLayer = true
+        container.layer?.backgroundColor = preset.bg.cgColor
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(stack)
+        scroll.documentView = container
+        scroll.backgroundColor = preset.bg
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -16),
+            container.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            container.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            container.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            container.heightAnchor.constraint(greaterThanOrEqualTo: scroll.contentView.heightAnchor),
+        ])
+        panel.contentView = scroll
+
+        if let win = window {
+            win.beginSheet(panel) { _ in }
+        } else {
+            panel.makeKeyAndOrderFront(nil)
+        }
     }
 }
