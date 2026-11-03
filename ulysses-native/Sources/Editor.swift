@@ -19,6 +19,10 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var pomoButton: RingButton?
     var goalRing: RingButton?
     var statusItem: NSStatusItem?
+    var statusMenuState: String = ""
+    var statusPomoItem: NSMenuItem?
+    var statusGoalItem: NSMenuItem?
+    var statusTimeItem: NSMenuItem?
     var toastPanel: ToastPanel?
     var toastTimer: Timer?
     var lastActivityAt = Date()
@@ -62,11 +66,11 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var bodyParagraph: NSParagraphStyle {
         let p = NSMutableParagraphStyle()
         let k = CGFloat(doc.fontSize / 17)
-        p.lineSpacing = 10 * k
-        p.paragraphSpacing = 10 * k
+        p.lineSpacing = CGFloat(doc.lineSpacing) * k
+        p.paragraphSpacing = CGFloat(doc.paragraphSpacing) * k
         p.lineBreakMode = .byWordWrapping
         // 中文长篇的习惯：每段首行空两格。标题/引用在排版层会覆盖成 0。
-        p.firstLineHeadIndent = doc.indentParagraphs ? CGFloat(doc.fontSize) * 2 : 0
+        p.firstLineHeadIndent = CGFloat(doc.indentChars) * CGFloat(doc.fontSize)
         return p
     }
     var bodyAttributes: [NSAttributedString.Key: Any] {
@@ -353,7 +357,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 if title == "__pomoRing__" {
                     let ring = RingButton(action: Selector(("togglePomodoro:")), tooltip: tip)
                     ring.target = self
-                    ring.glyph = "番"
+                    ring.glyph = "T"
                     ring.ringColor = .systemRed
                     pomoButton = ring
                     toolStack.addArrangedSubview(ring)
@@ -368,12 +372,8 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                     toolStack.addArrangedSubview(ring)
                     continue
                 }
-                let b = NSButton(title: title, target: self, action: Selector((sel)))
-                b.bezelStyle = .texturedRounded
-                b.controlSize = .small
-                b.font = NSFont.systemFont(ofSize: 11)
-                b.isBordered = true
-                b.toolTip = tip
+                let b = CapsuleButton(title: title, action: Selector((sel)), tooltip: tip)
+                b.target = self
                 if sel == "toggleSidebar:" { sidebarToggleButton = b }
                 toolStack.addArrangedSubview(b)
             }
@@ -534,7 +534,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     @objc func toggleMarkdown(_ sender: Any?) { doc.markdown.toggle(); applyMarkdownStyling(); persistNow() }
 
     @objc func toggleIndent(_ sender: Any?) {
-        doc.indentParagraphs.toggle()
+        doc.indentChars = doc.indentChars == 0 ? 2 : 0
         applyMarkdownStyling()
         textView.typingAttributes = bodyAttributes
         persistNow()

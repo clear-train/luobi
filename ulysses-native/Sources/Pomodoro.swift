@@ -105,7 +105,7 @@ extension EditorRoot {
             let p = 1 - CGFloat(left) / total
             pomoButton?.ringProgress = p
             pomoButton?.ringColor = pomoIsBreak ? .systemBlue : .systemRed
-            pomoButton?.glyph = pomoIsBreak ? "☕" : "番"
+            pomoButton?.glyph = pomoIsBreak ? "☕" : "T"
             pomoButton?.toolTip = (pomoIsBreak ? "休息中" : "专注中") + "，还剩 " + String(format: "%02d:%02d", Int(left) / 60, Int(left) % 60) + "，点一下暂停"
         } else {
             pomoButton?.ringProgress = 0

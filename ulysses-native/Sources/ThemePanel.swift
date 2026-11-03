@@ -17,10 +17,16 @@ final class ThemePanelWindow: NSPanel {
     private var swatchLabels: [NSTextField] = []
     private let sizeLabel = NSTextField(labelWithString: "17 pt")
     private let sizeSlider = NSSlider()
+    private let leadLabel = NSTextField(labelWithString: "10")
+    private let leadSlider = NSSlider()
+    private let paraLabel = NSTextField(labelWithString: "10")
+    private let paraSlider = NSSlider()
+    private let indentLabel = NSTextField(labelWithString: "2 字")
+    private let indentSlider = NSSlider()
 
     private static let swatchSide: CGFloat = 44
     private static let contentWidth: CGFloat = 420
-    private static let contentHeight: CGFloat = 300
+    private static let contentHeight: CGFloat = 380
     private static let sideInset: CGFloat = 20
 
     // MARK: 初始化
@@ -69,6 +75,7 @@ final class ThemePanelWindow: NSPanel {
     func syncAppearance() {
         let preset = ThemePresets.preset(editor?.doc.theme ?? "paper")
         appearance = NSAppearance(named: preset.isDark ? .darkAqua : .aqua)
+        contentView?.layer?.backgroundColor = preset.bg.cgColor
         refreshSelection()
     }
 
@@ -84,6 +91,36 @@ final class ThemePanelWindow: NSPanel {
 
         // 不关面板：就地更新高亮与面板明暗，用户可以一套套点着看
         syncAppearance()
+    }
+
+    @objc private func leadChanged(_ sender: NSSlider) {
+        guard let editor = editor else { return }
+        let v = sender.doubleValue.rounded()
+        sender.doubleValue = v
+        leadLabel.stringValue = "\(Int(v))"
+        editor.doc.lineSpacing = v
+        editor.persistNow()
+        editor.requestStylesRefresh()
+    }
+
+    @objc private func paraChanged(_ sender: NSSlider) {
+        guard let editor = editor else { return }
+        let v = sender.doubleValue.rounded()
+        sender.doubleValue = v
+        paraLabel.stringValue = "\(Int(v))"
+        editor.doc.paragraphSpacing = v
+        editor.persistNow()
+        editor.requestStylesRefresh()
+    }
+
+    @objc private func indentChanged(_ sender: NSSlider) {
+        guard let editor = editor else { return }
+        let v = Int(sender.doubleValue.rounded())
+        sender.doubleValue = Double(v)
+        indentLabel.stringValue = v == 0 ? "不缩进" : "\(v) 字"
+        editor.doc.indentChars = v
+        editor.persistNow()
+        editor.requestStylesRefresh()
     }
 
     @objc private func sizeChanged(_ sender: NSSlider) {
@@ -102,6 +139,9 @@ final class ThemePanelWindow: NSPanel {
     private func buildContent() {
         guard let content = contentView else { return }
         let inset = Self.sideInset
+        // 面板底色跟随主题，否则羊皮纸界面里突然弹一块纯白，很刺眼
+        content.wantsLayer = true
+        content.layer?.backgroundColor = ThemePresets.preset(editor?.doc.theme ?? "paper").bg.cgColor
 
         // 上半部分：主题 + 字号 + 说明（自上而下排布）
         rootStack.orientation = .vertical
@@ -113,6 +153,7 @@ final class ThemePanelWindow: NSPanel {
 
         // 底部：弹性留白 + 「完成」
         let footer = makeFooter()
+        content.addSubview(footer)   // 必须先入树，下面才可以用它的 anchor 加约束
 
         NSLayoutConstraint.activate([
             rootStack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: inset),
@@ -134,12 +175,18 @@ final class ThemePanelWindow: NSPanel {
         // 字号行占满内容宽度，滑块吃掉多余空间
         sizeRow.widthAnchor.constraint(equalTo: rootStack.widthAnchor).isActive = true
 
+        for row in [makeLeadRow(), makeParaRow(), makeIndentRow()] {
+            rootStack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: rootStack.widthAnchor).isActive = true
+        }
+
         let note = makeNote()
         rootStack.addArrangedSubview(note)
         note.preferredMaxLayoutWidth = Self.contentWidth - inset * 2
         note.widthAnchor.constraint(equalTo: rootStack.widthAnchor).isActive = true
 
         configFontSize()
+        configSpacing()
     }
 
     private func makeSectionLabel(_ text: String) -> NSTextField {
@@ -231,8 +278,75 @@ final class ThemePanelWindow: NSPanel {
         return row
     }
 
+    /// 通用：标题 + 滑块 + 右侧数值
+    private func makeSliderRow(_ caption: String,
+                               slider: NSSlider,
+                               label: NSTextField,
+                               min: Double,
+                               max: Double,
+                               ticks: Int,
+                               action: Selector) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 10
+
+        let cap = NSTextField(labelWithString: caption)
+        cap.font = .systemFont(ofSize: 13)
+        cap.setContentHuggingPriority(.required, for: .horizontal)
+        cap.widthAnchor.constraint(equalToConstant: 56).isActive = true
+
+        slider.minValue = min
+        slider.maxValue = max
+        slider.numberOfTickMarks = ticks
+        slider.allowsTickMarkValuesOnly = true
+        slider.isContinuous = true
+        slider.controlSize = .small
+        slider.target = self
+        slider.action = action
+        slider.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        label.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        label.textColor = .secondaryLabelColor
+        label.alignment = .right
+        label.widthAnchor.constraint(equalToConstant: 46).isActive = true
+
+        row.addArrangedSubview(cap)
+        row.addArrangedSubview(slider)
+        row.addArrangedSubview(label)
+        return row
+    }
+
+    private func makeLeadRow() -> NSView {
+        makeSliderRow("行间距", slider: leadSlider, label: leadLabel,
+                      min: 0, max: 24, ticks: 13, action: #selector(leadChanged(_:)))
+    }
+
+    private func makeParaRow() -> NSView {
+        makeSliderRow("段间距", slider: paraSlider, label: paraLabel,
+                      min: 0, max: 24, ticks: 13, action: #selector(paraChanged(_:)))
+    }
+
+    private func makeIndentRow() -> NSView {
+        makeSliderRow("首行缩进", slider: indentSlider, label: indentLabel,
+                      min: 0, max: 4, ticks: 5, action: #selector(indentChanged(_:)))
+    }
+
+    private func configSpacing() {
+        guard let doc = editor?.doc else { return }
+        let lead = min(24, max(0, doc.lineSpacing.rounded()))
+        leadSlider.doubleValue = lead
+        leadLabel.stringValue = "\(Int(lead))"
+        let para = min(24, max(0, doc.paragraphSpacing.rounded()))
+        paraSlider.doubleValue = para
+        paraLabel.stringValue = "\(Int(para))"
+        let ind = min(4, max(0, doc.indentChars))
+        indentSlider.doubleValue = Double(ind)
+        indentLabel.stringValue = ind == 0 ? "不缩进" : "\(ind) 字"
+    }
+
     private func makeNote() -> NSTextField {
-        let note = NSTextField(wrappingLabelWithString: "主题与字号会自动保存，下次打开还是这样")
+        let note = NSTextField(wrappingLabelWithString: "主题、字号、行距、缩进都会自动保存。行距调大一点更像书，不像记事本。")
         note.font = .systemFont(ofSize: 11)
         note.textColor = .secondaryLabelColor
         note.translatesAutoresizingMaskIntoConstraints = false

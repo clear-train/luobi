@@ -100,6 +100,18 @@ final class StatsChartView: NSView {
 
 extension EditorRoot {
 
+    /// 统一的面板关闭入口：sheet 用 endSheet，独立窗口直接 close。
+    /// （坑：对 sheet 调 performClose 不会结束 sheet，看起来就是"点了没反应"）
+    @objc func dismissSheetPanel(_ sender: Any?) {
+        let win = (sender as? NSView)?.window ?? NSApp.keyWindow
+        guard let target = win else { return }
+        if let parent = target.sheetParent {
+            parent.endSheet(target)
+        } else {
+            target.close()
+        }
+    }
+
     @objc func showStatsPanel(_ sender: Any?) {
         let stats = doc.writeStats(days: 30)
         let goal = doc.dailyGoal
@@ -152,12 +164,13 @@ extension EditorRoot {
                       NSColor.systemOrange.withAlphaComponent(0.9), y: 40, h: 14)
         }
 
-        let close = NSButton(title: "关闭", target: nil, action: nil)
+        // 注意：target 必须是"要关闭的那个窗口"，不是按钮自己。
+        // 写成 target = close 时 AppKit 会静默吞掉 action（按钮不响应 performClose），
+        // 表现就是「点了没反应，面板卡在那儿关不掉」。
+        let close = NSButton(title: "关闭", target: self, action: Selector(("dismissSheetPanel:")))
         close.bezelStyle = .texturedRounded
         close.keyEquivalent = "\r"
         close.frame = NSRect(x: 552, y: 10, width: 64, height: 26)
-        close.target = close
-        close.action = #selector(NSWindow.performClose(_:))
         content.addSubview(close)
 
         if let win = window {

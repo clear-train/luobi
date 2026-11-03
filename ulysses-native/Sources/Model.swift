@@ -83,7 +83,9 @@ struct DocState: Codable {
     var sidebarVisible: Bool = true
     var fontSize: Double = 17
     var seenGuide: Bool = false     // 首次启动自动弹一次使用指南
-    var indentParagraphs: Bool = true  // 中文习惯：每段首行缩进两个字
+    var indentChars: Int = 2           // 首行缩进几个字（0 = 不缩进），中文习惯是 2
+    var lineSpacing: Double = 13       // 行间距（17pt 下的基准值，随字号等比缩放）
+    var paragraphSpacing: Double = 12  // 段间距（同上）
     var dailyGoal: Int = 0             // 每日目标字数，0 = 不设
     var dailyBase: [String: Int] = [:] // "2026-11-03" -> 当天开工时全书字数
     var dailyDone: [String: Int] = [:] // "2026-11-03" -> 当天最多写到过多少字
@@ -96,7 +98,12 @@ struct DocState: Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case sheets, activeId, typewriter, markdown, theme, goal, folders, sidebarVisible, fontSize, seenGuide, indentParagraphs, dailyGoal, dailyBase, dailyDone, writeSeconds, pomodoroDone
+        case sheets, activeId, typewriter, markdown, theme, goal, folders, sidebarVisible, fontSize, seenGuide, indentChars, lineSpacing, paragraphSpacing, dailyGoal, dailyBase, dailyDone, writeSeconds, pomodoroDone
+    }
+
+    /// 只用于读老数据：0.8 之前的「是否缩进」开关
+    private enum LegacyKeys: String, CodingKey {
+        case indentParagraphs
     }
 
     // 手写解码：老版本 state.json 缺字段时回落默认值，不丢数据
@@ -111,7 +118,15 @@ struct DocState: Codable {
         folders = try c.decodeIfPresent([Folder].self, forKey: .folders) ?? []
         sidebarVisible = try c.decodeIfPresent(Bool.self, forKey: .sidebarVisible) ?? true
         fontSize = try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? 17
-        indentParagraphs = try c.decodeIfPresent(Bool.self, forKey: .indentParagraphs) ?? true
+        // 老版本只有一个「是否缩进」开关，迁移成"缩进几个字"
+        if let n = try c.decodeIfPresent(Int.self, forKey: .indentChars) {
+            indentChars = max(0, min(4, n))
+        } else if let legacy = try? decoder.container(keyedBy: LegacyKeys.self),
+                  let on = try? legacy.decodeIfPresent(Bool.self, forKey: .indentParagraphs), on == false {
+            indentChars = 0
+        }
+        lineSpacing = try c.decodeIfPresent(Double.self, forKey: .lineSpacing) ?? 13
+        paragraphSpacing = try c.decodeIfPresent(Double.self, forKey: .paragraphSpacing) ?? 12
         dailyGoal = try c.decodeIfPresent(Int.self, forKey: .dailyGoal) ?? 0
         dailyBase = try c.decodeIfPresent([String: Int].self, forKey: .dailyBase) ?? [:]
         dailyDone = try c.decodeIfPresent([String: Int].self, forKey: .dailyDone) ?? [:]
@@ -136,7 +151,7 @@ struct DocState: Codable {
 
 ## 几个按钮
 
-- 顶部工具栏从左到右：＋文（新建文稿）、▤ 分组（新建文件夹）、侧栏（收起/展开）、导入、导出、打字机、排版、主题、目标、指南。
+- 顶部只有三个按钮：＋新建（文稿）、▤ 分组（文件夹）、收起侧栏；右边两个环是番茄钟和今日进度。其余动作（导入/导出/成书/历史/外观/指南/统计）在 **macOS 菜单栏图标**和应用菜单里。
 - 侧栏里的文稿可以直接拖进文件夹；右键有重命名、删除。
 - 打字机：正在写的这一行始终停在屏幕中间，眼睛不用追。
 - 排版：# 开头是标题，**两边两个星号**是加粗，> 开头是引用。

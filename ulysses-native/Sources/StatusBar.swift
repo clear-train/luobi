@@ -56,6 +56,46 @@ extension NSImage {
     }
 }
 
+/// 顶栏的胶囊按钮：自己画背景和文字，避免系统 bezel 在不同字号下把字顶偏
+final class CapsuleButton: NSButton {
+    var fillAlpha: CGFloat = 0.07
+
+    init(title: String, action: Selector, tooltip: String) {
+        super.init(frame: NSRect(x: 0, y: 0, width: 64, height: 26))
+        self.title = title
+        self.target = nil
+        self.action = action
+        self.isBordered = false
+        self.focusRingType = .none
+        self.toolTip = tooltip
+        self.font = NSFont.systemFont(ofSize: 11.5, weight: .regular)
+        self.setContentHuggingPriority(.required, for: .horizontal)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override var intrinsicContentSize: NSSize {
+        let w = (title as NSString).size(withAttributes: [.font: font ?? .systemFont(ofSize: 11.5)]).width
+        return NSSize(width: ceil(w) + 20, height: 26)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let r = bounds.insetBy(dx: 0.5, dy: 0.5)
+        let path = NSBezierPath(roundedRect: r, xRadius: 7, yRadius: 7)
+        NSColor.labelColor.withAlphaComponent(isHighlighted ? fillAlpha + 0.09 : fillAlpha).setFill()
+        path.fill()
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font ?? NSFont.systemFont(ofSize: 11.5),
+            .foregroundColor: NSColor.labelColor
+        ]
+        let str = title as NSString
+        let size = str.size(withAttributes: attrs)
+        // 垂直居中：按字形高度自己算，而不是让 cell 去猜
+        let y = (bounds.height - size.height) / 2 + 1
+        str.draw(at: NSPoint(x: (bounds.width - size.width) / 2, y: y), withAttributes: attrs)
+    }
+}
+
 /// 主窗口顶栏里的环按钮：点一下执行 action，图形由更新函数负责
 final class RingButton: NSButton {
     var ringProgress: CGFloat = 0 { didSet { refreshImage() } }
@@ -64,7 +104,10 @@ final class RingButton: NSButton {
     var idleGlyphFallback: String?
 
     init(action: Selector, tooltip: String) {
-        super.init(frame: NSRect(x: 0, y: 0, width: 28, height: 24))
+        super.init(frame: NSRect(x: 0, y: 0, width: 34, height: 28))
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: 34).isActive = true
+        heightAnchor.constraint(equalToConstant: 28).isActive = true
         self.target = nil
         self.action = action
         self.isBordered = false
@@ -81,7 +124,7 @@ final class RingButton: NSButton {
     private func refreshImage() {
         // 空闲时灰环 + 淡符号，运行中彩色环
         let color = ringProgress > 0.001 ? ringColor : NSColor.secondaryLabelColor
-        image = NSImage.ring(progress: ringProgress, color: color, size: 20,
+        image = NSImage.ring(progress: ringProgress, color: color, size: 26,
                              glyph: glyph ?? idleGlyphFallback)
     }
 }
@@ -109,16 +152,45 @@ extension EditorRoot {
             let p = 1 - left / total
             item.button?.image = NSImage.ring(progress: CGFloat(p),
                                               color: pomoIsBreak ? .systemBlue : .systemRed,
-                                              size: 20, glyph: pomoIsBreak ? "☕" : "番")
+                                              size: 22, glyph: pomoIsBreak ? "☕" : "T")
             item.button?.attributedTitle = NSAttributedString(string: "")
+            // 菜单栏上直接显示剩余时间——不用点开就能看
+            item.button?.attributedTitle = NSAttributedString(
+                string: " " + pomoRemainingText,
+                attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)])
         } else {
             let p: CGFloat = goal > 0 ? CGFloat(min(1, Double(wrote) / Double(goal))) : 0
             item.button?.image = NSImage.ring(progress: p,
                                               color: goal > 0 && wrote >= goal ? .systemGreen : .systemBlue,
                                               size: 20, glyph: "今")
-            item.button?.attributedTitle = NSAttributedString(string: "")
+            item.button?.attributedTitle = goal > 0
+                ? NSAttributedString(string: " \(wrote)/\(goal)",
+                                     attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .regular),
+                                                  .foregroundColor: NSColor.secondaryLabelColor])
+                : NSAttributedString(string: "")
         }
-        rebuildStatusMenu()
+        let state = pomoEndAt == nil ? "idle" : (pomoIsBreak ? "break" : "focus")
+        if state != statusMenuState {
+            statusMenuState = state
+            rebuildStatusMenu()
+        } else {
+            updateStatusMenuDynamic()
+        }
+    }
+
+    /// 每秒只改这几行的文字，不重建整个菜单（重建会把正打开的菜单打断）
+    func updateStatusMenuDynamic() {
+        if let it = statusPomoItem {
+            if pomoEndAt != nil {
+                it.title = "暂停（还剩 \(pomoRemainingText)）"
+            } else {
+                it.title = "开始 25 分钟专注"
+            }
+        }
+        statusGoalItem?.title = doc.dailyGoal > 0
+            ? "今日：\(doc.todayWritten) / \(doc.dailyGoal) 字"
+            : "今日：\(doc.todayWritten) 字（没设目标）"
+        statusTimeItem?.title = "写作 \(doc.todaySeconds / 60) 分钟 · 番茄 \(doc.todayPomodoros) 个"
     }
 
     var pomoRemainingText: String {
@@ -147,6 +219,7 @@ extension EditorRoot {
             add("暂停（还剩 \(pomoRemainingText)）", "togglePomodoro:")
             add(pomoIsBreak ? "跳过休息" : "提前休息", "skipToBreak:")
         }
+        statusPomoItem = menu.items.first { $0.action != nil && $0.target === self }
 
         menu.addItem(.separator())
         let goalTitle = doc.dailyGoal > 0
@@ -155,10 +228,12 @@ extension EditorRoot {
         let goalItem = NSMenuItem(title: goalTitle, action: nil, keyEquivalent: "")
         goalItem.isEnabled = false
         menu.addItem(goalItem)
+        statusGoalItem = goalItem
         let timeTitle = "写作 \(doc.todaySeconds / 60) 分钟 · 番茄 \(doc.todayPomodoros) 个"
         let timeItem = NSMenuItem(title: timeTitle, action: nil, keyEquivalent: "")
         timeItem.isEnabled = false
         menu.addItem(timeItem)
+        statusTimeItem = timeItem
 
         menu.addItem(.separator())
         add("设置今日写作目标…", "showGoalPanel:")
