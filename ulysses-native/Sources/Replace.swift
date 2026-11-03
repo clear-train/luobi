@@ -105,6 +105,7 @@ extension EditorRoot {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 248),
                             styleMask: [.titled, .closable], backing: .buffered, defer: false)
         panel.title = "查找与替换"
+        if ThemePresets.preset(doc.theme).isDark { panel.appearance = NSAppearance(named: .darkAqua) }
         panel.isReleasedWhenClosed = false
         panel.backgroundColor = preset.bg
 

@@ -121,6 +121,14 @@ extension EditorRoot {
         sidebarScroll.backgroundColor = preset.bg
         sidebarScroll.drawsBackground = true
         table.backgroundColor = preset.bg
+
+        // 侧栏选中态：浅色用 sourceList（圆角、贴合 Finder 手感），
+        // 深色用 plain + regular —— sourceList 在深色下会把选中行文字染成低对比的蓝灰，
+        // 而 plain 的整行高亮配白字，对比度稳。
+        if #available(macOS 11.0, *) {
+            table.style = preset.isDark ? .plain : .sourceList
+        }
+        table.selectionHighlightStyle = preset.isDark ? .regular : .sourceList
     }
 
     /// 只改前景色：不碰 .font / .paragraphStyle，所以字号、行距、Markdown 结构都保持原样。

@@ -78,7 +78,7 @@ final class StatsChartView: NSView {
         // 日期标签：每 5 天一个，今天单独标
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 8.5),
-            .foregroundColor: NSColor.tertiaryLabelColor,
+            .foregroundColor: NSColor.secondaryLabelColor,
         ]
         let df = DateFormatter()
         df.dateFormat = "M/d"
@@ -109,6 +109,7 @@ extension EditorRoot {
             styleMask: [.titled, .closable],
             backing: .buffered, defer: false)
         panel.title = "写作统计"
+        if ThemePresets.preset(doc.theme).isDark { panel.appearance = NSAppearance(named: .darkAqua) }
         panel.isReleasedWhenClosed = false
 
         let content = NSView(frame: panel.contentView?.bounds ?? .zero)

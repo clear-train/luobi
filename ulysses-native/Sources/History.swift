@@ -97,6 +97,7 @@ extension EditorRoot {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 660, height: 470),
                             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         panel.title = "历史版本 · \(sheet.title)"
+        if ThemePresets.preset(doc.theme).isDark { panel.appearance = NSAppearance(named: .darkAqua) }
         panel.isReleasedWhenClosed = false
         panel.backgroundColor = preset.bg
 

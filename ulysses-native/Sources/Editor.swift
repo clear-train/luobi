@@ -177,7 +177,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // 侧栏底部常驻入口：不靠记快捷键，也不靠翻菜单
         let footHint = NSTextField(labelWithString: "右键管理·拖动")
         footHint.font = NSFont.systemFont(ofSize: 10.5)
-        footHint.textColor = .tertiaryLabelColor
+        footHint.textColor = .secondaryLabelColor
         footHint.translatesAutoresizingMaskIntoConstraints = false
         sidebarFooter = NSStackView()
         sidebarFooter.orientation = .horizontal

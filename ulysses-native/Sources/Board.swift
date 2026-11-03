@@ -222,6 +222,7 @@ extension EditorRoot {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 860, height: 620),
                             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         panel.title = "大纲板"
+        if ThemePresets.preset(doc.theme).isDark { panel.appearance = NSAppearance(named: .darkAqua) }
         panel.isReleasedWhenClosed = false
         panel.backgroundColor = preset.bg
 
