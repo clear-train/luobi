@@ -1,13 +1,35 @@
 import Foundation
 import AppKit
 
-// MARK: - 数据模型与文稿库
+// MARK: - 数据模型：从「一篇」长成「多篇」
+
+struct Sheet: Codable {
+    var id: String
+    var title: String
+    var content: String
+    var updatedAt: Double = 0 // 以后侧栏按时间排序用，先占位
+}
 
 struct DocState: Codable {
-    var title: String = "未命名"
-    var content: String = "第一次打开。\n\n在下面开始写你的第一章吧。"
+    var sheets: [Sheet]
+    var activeId: String
     var typewriter: Bool = true
     var markdown: Bool = true
+
+    static func initial() -> DocState {
+        let s = Sheet(id: UUID().uuidString, title: "第一章", content: "开始写。")
+        return DocState(sheets: [s], activeId: s.id)
+    }
+
+    func sheet(id: String) -> Sheet? { sheets.first { $0.id == id } }
+}
+
+// 旧版单篇文档的形状，只迁移用
+struct LegacyDoc: Codable {
+    var title: String?
+    var content: String?
+    var typewriter: Bool?
+    var markdown: Bool?
 }
 
 enum Vault {
@@ -23,8 +45,21 @@ enum Vault {
 
     static func load() -> DocState {
         ensure()
-        guard let data = try? Data(contentsOf: file) else { return DocState() }
-        return (try? JSONDecoder().decode(DocState.self, from: data)) ?? DocState()
+        guard let data = try? Data(contentsOf: file), !data.isEmpty else { return .initial() }
+        if let fresh = try? JSONDecoder().decode(DocState.self, from: data),
+           !fresh.sheets.isEmpty, fresh.sheet(id: fresh.activeId) != nil {
+            return fresh
+        }
+        // 迁移：老 state.json（单篇）→ 新结构（多篇），内容一点不丢
+        if let legacy = try? JSONDecoder().decode(LegacyDoc.self, from: data) {
+            let s = Sheet(id: UUID().uuidString,
+                          title: legacy.title ?? "未命名",
+                          content: legacy.content ?? "")
+            return DocState(sheets: [s], activeId: s.id,
+                            typewriter: legacy.typewriter ?? true,
+                            markdown: legacy.markdown ?? true)
+        }
+        return .initial()
     }
 
     static func save(_ doc: DocState) -> Bool {
@@ -66,107 +101,36 @@ func statLatin(_ s: String) -> Int {
     return n
 }
 
-// MARK: - 编辑器界面（AppKit：手ケード约束，无宏依赖）
+// MARK: - 界面：侧栏 + 编辑器
 
-final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
+final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate,
+                        NSTableViewDataSource, NSTableViewDelegate {
     var titleInput = NSTextField()
     var scrollView = NSScrollView()
     var textView = NSTextView()
     var barLabel = NSTextField()
+    var searchField = NSSearchField()
+    var plusButton = NSButton()
+    var sidebarScroll = NSScrollView()
+    var table = NSTableView()
+
     var saveTimer: Timer? = nil
+    var styleTimer: Timer? = nil
+    private var updatingTable = false
 
     private(set) var doc = Vault.load()
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        buildViews()
-    }
+    private var activeIndex: Int? { doc.sheets.firstIndex { $0.id == doc.activeId } }
 
-    required init?(coder: NSCoder) { fatalError("不走 storyboard") }
-
-    private func buildViews() {
-        wantsLayer = true
-
-        // 标题输入框
-        titleInput = NSTextField()
-        titleInput.stringValue = doc.title
-        titleInput.isBordered = false
-        titleInput.drawsBackground = false
-        titleInput.placeholderString = "给这篇起个名字"
-        titleInput.font = NSFont.boldSystemFont(ofSize: 22)
-        titleInput.delegate = self
-        titleInput.translatesAutoresizingMaskIntoConstraints = false
-
-        // 滚动区 + 正文
-        scrollView.hasVerticalScroller = true
-        scrollView.drawsBackground = false
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-
-        textView = NSTextView()
-        textView.isRichText = true        // 要挂自定义属性（粗体/字号），只能走富文本
-        textView.usesFontPanel = false    // 但不让用户手动改格式，排版权在我们手里
-        textView.string = doc.content
-        textView.font = NSFont.systemFont(ofSize: 17)
-        textView.delegate = self
-        textView.usesFindBar = true
-        textView.isIncrementalSearchingEnabled = true
-        textView.autoresizingMask = [.width]
-        textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.isVerticallyResizable = true
-        textView.textContainerInset = NSSize(width: 24, height: 24)
-        scrollView.documentView = textView
-
-        // 底部信息栏
-        barLabel = NSTextField(labelWithString: "")
-        barLabel.font = NSFont.systemFont(ofSize: 11)
-        barLabel.textColor = .secondaryLabelColor
-        barLabel.translatesAutoresizingMaskIntoConstraints = false
-        refreshBar()
-
-        addSubview(titleInput)
-        addSubview(scrollView)
-        addSubview(barLabel)
-
-        NSLayoutConstraint.activate([
-            titleInput.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            titleInput.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
-            titleInput.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
-
-            scrollView.topAnchor.constraint(equalTo: titleInput.bottomAnchor, constant: 8),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-
-            barLabel.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 6),
-            barLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
-            barLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
-            barLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
-        ])
-
-        // 让光标直接落在正文里，一打开就能写
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.window?.makeFirstResponder(self.textView)
-            self.textView.setSelectedRange(NSRange(location: self.doc.content.utf16.count, length: 0))
-            if self.doc.typewriter {
-                self.textView.centerSelectionInVisibleArea(nil)
-            }
+    private var filtered: [Sheet] {
+        let q = searchField.stringValue.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return doc.sheets }
+        return doc.sheets.filter {
+            $0.title.lowercased().contains(q) || $0.content.lowercased().contains(q)
         }
     }
 
-    // MARK: 变化 → 保存（800ms 防抖）
-
-    private var styleTimer: Timer? = nil
-
-    // 100ms 防抖的排版：比保存更频繁（所见即所得要跟手），但不逐键跑
-    private func restyleSoon() {
-        styleTimer?.invalidate()
-        styleTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
-            self?.applyMarkdownStyling()
-        }
-    }
-
-    // 底座样式和档位表：以后想调字号/颜色只改这里
+    // 底座样式和档位表
     private let baseFont = NSFont.systemFont(ofSize: 17)
     private let headingFonts: [NSFont] = [
         NSFont.boldSystemFont(ofSize: 26),
@@ -176,6 +140,213 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         NSFont.boldSystemFont(ofSize: 17),
         NSFont.boldSystemFont(ofSize: 16),
     ]
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        buildViews()
+    }
+
+    required init?(coder: NSCoder) { fatalError("不走 storyboard") }
+
+    // MARK: 搭视图
+
+    private func buildViews() {
+        wantsLayer = true
+
+        // --- 侧栏 ---
+        searchField.placeholderString = "搜索文稿"
+        searchField.font = NSFont.systemFont(ofSize: 12)
+        searchField.sendsSearchStringImmediately = true
+        searchField.target = self
+        searchField.action = #selector(searchChanged(_:))
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+
+        plusButton.title = "+"
+        plusButton.bezelStyle = .regularSquare
+        plusButton.isBordered = true
+        plusButton.font = NSFont.systemFont(ofSize: 13, weight: .bold)
+        plusButton.target = self
+        plusButton.action = #selector(addSheet(_:))
+        plusButton.translatesAutoresizingMaskIntoConstraints = false
+
+        table = NSTableView()
+        table.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("t")))
+        table.headerView = nil
+        table.rowHeight = 30
+        table.allowsMultipleSelection = false
+        table.dataSource = self
+        table.delegate = self
+        table.setAccessibilityLabel("文稿列表")
+        sidebarScroll.documentView = table
+        sidebarScroll.hasVerticalScroller = true
+        sidebarScroll.drawsBackground = false
+        sidebarScroll.translatesAutoresizingMaskIntoConstraints = false
+
+        // --- 编辑器 ---
+        titleInput.stringValue = doc.sheet(id: doc.activeId)?.title ?? ""
+        titleInput.isBordered = false
+        titleInput.drawsBackground = false
+        titleInput.placeholderString = "给这篇起个名字"
+        titleInput.font = NSFont.boldSystemFont(ofSize: 22)
+        titleInput.delegate = self
+        titleInput.translatesAutoresizingMaskIntoConstraints = false
+
+        scrollView.hasVerticalScroller = true
+        scrollView.drawsBackground = false
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        textView = NSTextView()
+        textView.isRichText = true
+        textView.usesFontPanel = false
+        textView.string = doc.sheet(id: doc.activeId)?.content ?? ""
+        textView.font = baseFont
+        textView.delegate = self
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.textContainerInset = NSSize(width: 24, height: 24)
+        scrollView.documentView = textView
+
+        barLabel.font = NSFont.systemFont(ofSize: 11)
+        barLabel.textColor = .secondaryLabelColor
+        barLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(searchField)
+        addSubview(plusButton)
+        addSubview(sidebarScroll)
+        addSubview(titleInput)
+        addSubview(scrollView)
+        addSubview(barLabel)
+        refreshBar()
+
+        NSLayoutConstraint.activate([
+            // 侧栏列
+            searchField.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            searchField.widthAnchor.constraint(equalToConstant: 170),
+            plusButton.topAnchor.constraint(equalTo: searchField.topAnchor),
+            plusButton.leadingAnchor.constraint(equalTo: searchField.trailingAnchor, constant: 4),
+            plusButton.widthAnchor.constraint(equalToConstant: 28),
+            plusButton.heightAnchor.constraint(equalTo: searchField.heightAnchor),
+            sidebarScroll.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
+            sidebarScroll.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            sidebarScroll.widthAnchor.constraint(equalToConstant: 212),
+            sidebarScroll.bottomAnchor.constraint(equalTo: barLabel.topAnchor, constant: -6),
+
+            // 编辑列
+            titleInput.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            titleInput.leadingAnchor.constraint(equalTo: sidebarScroll.trailingAnchor, constant: 20),
+            titleInput.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
+
+            scrollView.topAnchor.constraint(equalTo: titleInput.bottomAnchor, constant: 6),
+            scrollView.leadingAnchor.constraint(equalTo: titleInput.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+
+            barLabel.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 6),
+            barLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
+            barLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
+            barLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+        ])
+
+        applyMarkdownStyling()
+        refreshTable()
+
+        // 选中当前篇、光标进正文
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.window?.makeFirstResponder(self.textView)
+            let end = (textView.string as NSString).length
+            textView.setSelectedRange(NSRange(location: end, length: 0))
+            if doc.typewriter { textView.centerSelectionInVisibleArea(nil) }
+            }
+    }
+
+    // MARK: 侧栏数据源
+
+    func numberOfRows(in tableView: NSTableView) -> Int { filtered.count }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        let cellID = NSUserInterfaceItemIdentifier("cell")
+        let tf = (tableView.makeView(withIdentifier: cellID, owner: nil) as? NSTextField)
+            ?? {
+                let f = NSTextField(labelWithString: "")
+                f.identifier = cellID
+                f.font = NSFont.systemFont(ofSize: 13)
+                f.lineBreakMode = .byTruncatingTail
+                return f
+            }()
+        let s = filtered[row]
+        tf.stringValue = s.title.isEmpty ? "未命名" : s.title
+        tf.textColor = s.id == doc.activeId ? .labelColor : .secondaryLabelColor
+        return tf
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        guard !updatingTable else { return }
+        let row = table.selectedRow
+        guard row >= 0, row < filtered.count else { return }
+        let id = filtered[row].id
+        guard id != doc.activeId else { return }
+        switchTo(id)
+    }
+
+    private func refreshTable() {
+        updatingTable = true
+        table.reloadData()
+        if let row = filtered.firstIndex(where: { $0.id == doc.activeId }) {
+            table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            table.scrollRowToVisible(row)
+        }
+        updatingTable = false
+    }
+
+    // MARK: 切篇 / 新建 / 搜索
+
+    private func switchTo(_ id: String) {
+        doc.activeId = id
+        if let s = doc.sheet(id: id) {
+            titleInput.stringValue = s.title
+            textView.string = s.content
+        }
+        applyMarkdownStyling()
+        refreshTable()
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.window?.makeFirstResponder(self.textView)
+            let end = (textView.string as NSString).length
+            textView.setSelectedRange(NSRange(location: end, length: 0))
+            if doc.typewriter { textView.centerSelectionInVisibleArea(nil) }
+        }
+        persistNow()
+    }
+
+    @objc func addSheet(_ sender: Any?) {
+        var n = doc.sheets.count + 1
+        var t = "未命名"
+        // 避免重名堆叠：未命名2、未命名3…
+        while doc.sheets.contains(where: { $0.title == t }) {
+            n += 1
+            t = "未命名 \(n)"
+        }
+        let s = Sheet(id: UUID().uuidString, title: t, content: "")
+        doc.sheets.append(s)
+        switchTo(s.id)
+    }
+
+    @objc func searchChanged(_ sender: Any?) {
+        refreshTable()
+    }
+
+    // MARK: 排版
+
+    private func restyleSoon() {
+        styleTimer?.invalidate()
+        styleTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
+            self?.applyMarkdownStyling()
+        }
+    }
 
     private func applyMarkdownStyling() {
         let storage = textView.textStorage!
@@ -191,14 +362,12 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
         let ns = storage.string as NSString
         if full.length == 0 { return }
-        ns.enumerateSubstrings(in: full, options: [.byLines]) { [weak self] line, sub, enclosing, _ in
+        ns.enumerateSubstrings(in: full, options: [.byLines]) { [weak self] line, _, enclosing, _ in
             guard let self = self, let line = line else { return }
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty else { return }
 
-            // # 标题：数井号定档位
-            let hashes = trimmed.prefix { $0 == "#" }
-            let hashCount = hashes.count
+            let hashCount = trimmed.prefix { $0 == "#" }.count
             if hashCount >= 1 && hashCount <= 6 {
                 let rest = trimmed.dropFirst(hashCount)
                 if rest.isEmpty || rest.hasPrefix(" ") || rest.hasPrefix("\t") {
@@ -212,18 +381,14 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 }
             }
 
-            // **加粗**：成对找
             var searchStart = line.startIndex
-            var opens: [String.Index] = []
             while let first = line.range(of: "**", range: searchStart..<line.endIndex) {
                 if let close = line.range(of: "**", range: first.upperBound..<line.endIndex) {
                     let inner = first.upperBound..<close.lowerBound
-                    let rangeInDoc = NSRange(inner, in: line)
-                    let shifted = NSRange(location: enclosing.location + rangeInDoc.location,
-                                          length: rangeInDoc.length)
+                    let r = NSRange(inner, in: line)
+                    let shifted = NSRange(location: enclosing.location + r.location, length: r.length)
                     if shifted.length > 0 {
-                        storage.addAttributes([.font: NSFont.boldSystemFont(ofSize: 17)],
-                                              range: shifted)
+                        storage.addAttributes([.font: NSFont.boldSystemFont(ofSize: 17)], range: shifted)
                     }
                     searchStart = close.upperBound
                 } else {
@@ -231,16 +396,16 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 }
             }
 
-            // > 引用
             if trimmed.hasPrefix(">") {
                 storage.addAttributes([
-                    .font: NSFontManager.shared.convert(baseFont, toHaveTrait: [.italicFontMask]),
+                    .font: NSFontManager.shared.convert(self.baseFont, toHaveTrait: [.italicFontMask]),
                     .foregroundColor: NSColor.secondaryLabelColor,
                 ], range: enclosing)
-                return
             }
         }
     }
+
+    // MARK: 保存（800ms 防抖）
 
     private func markDirty() {
         refreshBar()
@@ -256,74 +421,89 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         refreshBar(saved: ok)
     }
 
+    private var activeCount: Int {
+        guard let i = activeIndex else { return 0 }
+        let c = doc.sheets[i].content
+        return statCJK(c) + statLatin(c)
+    }
+
     private func refreshBar(saved: Bool? = nil) {
-        let n = statCJK(doc.content) + statLatin(doc.content)
+        let n = activeCount
         let count = n == 0 ? "尚无字数" : "约 \(n) 字"
+        var s = "Ulysses Native · \(doc.sheets.count) 篇 · " + count
         if let saved = saved {
-            barLabel.stringValue = "Ulysses Native · " + count + " · " + (saved ? "已自动保存" : "保存失败")
-        } else {
-            barLabel.stringValue = "Ulysses Native · " + count
+            s += " · " + (saved ? "已自动保存" : "保存失败")
+        }
+        barLabel.stringValue = s
+    }
+
+    // MARK: 委托回调：写入当前篇
+
+    func controlTextDidChange(_ obj: Notification) {
+        switch obj.object as? NSTextField {
+        case titleInput:
+            if let i = activeIndex {
+                doc.sheets[i].title = titleInput.stringValue
+                markDirty()
+                refreshTable()
+            }
+        case searchField:
+            searchChanged(searchField)
+        default:
+            break
         }
     }
 
-    // MARK: 委托回调
-
-    func controlTextDidChange(_ obj: Notification) { // 标题变化
-        guard (obj.object as? NSTextField) === titleInput else { return }
-        doc.title = titleInput.stringValue
-        markDirty()
-    }
-
-    func textDidChange(_ notification: Notification) { // 正文变化
-        doc.content = textView.string
-        markDirty()
-        if doc.typewriter {
-            DispatchQueue.main.async { [weak self] in
-                self?.textView.centerSelectionInVisibleArea(nil)
+    func textDidChange(_ notification: Notification) {
+        if let i = activeIndex {
+            doc.sheets[i].content = textView.string
+            markDirty()
+            if doc.typewriter {
+                DispatchQueue.main.async { [weak self] in
+                    self?.textView.centerSelectionInVisibleArea(nil)
+                }
             }
         }
     }
 
-    // MARK: 菜单动作（走响应链：menuItem.target=nil，谁在响应链顶谁接）
+    // MARK: 菜单动作
 
-    @objc func toggleTypewriter(_ sender: Any?) {
-        doc.typewriter.toggle()
-        persistNow()
-    }
-
-    @objc func toggleMarkdown(_ sender: Any?) {
-        doc.markdown.toggle()
-        applyMarkdownStyling()
-        persistNow()
-    }
-
-    @objc func saveNow(_ sender: Any?) {
-        persistNow()
-    }
+    @objc func toggleTypewriter(_ sender: Any?) { doc.typewriter.toggle(); persistNow() }
+    @objc func toggleMarkdown(_ sender: Any?) { doc.markdown.toggle(); applyMarkdownStyling(); persistNow() }
+    @objc func saveNow(_ sender: Any?) { persistNow() }
 }
 
 // MARK: - 组装窗口与菜单
 
 let app = NSApplication.shared
 
-let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 660),
+let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1080, height: 680),
                    styleMask: [.titled, .closable, .miniaturizable, .resizable],
                    backing: .buffered, defer: false)
 win.title = "Ulysses Native"
-win.minSize = NSSize(width: 640, height: 440)
+win.minSize = NSSize(width: 780, height: 460)
 win.contentView = EditorRoot()
 win.center()
 win.setFrameAutosaveName("UlyssesNativeMain")
 win.makeKeyAndOrderFront(nil)
 
-// 菜单：编辑菜单一接上，系统级撤销/重做/剪切/粘贴就全部生效
 let main = NSMenu()
 for (name, items) in [
     ("应用", [
         NSMenuItem(title: "退出 Ulysses Native", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"),
     ]),
     ("文件", [
+        NSMenuItem(title: "新建文稿", action: Selector(("addSheet:")), keyEquivalent: "n"),
         NSMenuItem(title: "立即保存", action: Selector(("saveNow:")), keyEquivalent: "s"),
+    ]),
+    ("编辑", [
+        NSMenuItem(title: "撤销", action: Selector(("undo:")), keyEquivalent: "z"),
+        NSMenuItem(title: "重做", action: Selector(("redo:")), keyEquivalent: "Z"),
+        { let s = NSMenuItem.separator(); return s }(),
+        NSMenuItem(title: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x"),
+        NSMenuItem(title: "拷贝", action: #selector(NSText.copy(_:)), keyEquivalent: "c"),
+        NSMenuItem(title: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v"),
+        NSMenuItem(title: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"),
     ]),
     ("视图", [
         {
@@ -336,15 +516,6 @@ for (name, items) in [
             i.keyEquivalentModifierMask = [.command, .option]
             return i
         }(),
-    ]),
-    ("编辑", [
-        NSMenuItem(title: "撤销", action: Selector(("undo:")), keyEquivalent: "z"),
-        NSMenuItem(title: "重做", action: Selector(("redo:")), keyEquivalent: "Z"),
-        { let s = NSMenuItem.separator(); return s }(),
-        NSMenuItem(title: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x"),
-        NSMenuItem(title: "拷贝", action: #selector(NSText.copy(_:)), keyEquivalent: "c"),
-        NSMenuItem(title: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v"),
-        NSMenuItem(title: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"),
     ]),
     ("窗口", [
         NSMenuItem(title: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"),
