@@ -25,7 +25,10 @@ win.setFrameAutosaveName("UlyssesNativeMain")
 win.makeKeyAndOrderFront(nil)
 
 // 写作计时：窗口在前台且有输入才开始累积
-if let root = win.contentView as? EditorRoot { root.startSessionTracking() }
+if let root = win.contentView as? EditorRoot {
+    root.startSessionTracking()
+    root.installStatusItem()   // 菜单栏图标：番茄钟与今日进度常驻在这里
+}
 
 // 首次启动：自动弹一次使用指南（把 seenGuide 写回，之后不再打扰）
 if let root = win.contentView as? EditorRoot, !root.doc.seenGuide {

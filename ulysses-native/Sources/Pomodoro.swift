@@ -75,36 +75,44 @@ extension EditorRoot {
         let wasBreak = closePomodoro()
         NSSound(named: "Glass")?.play()
 
-        let alert = NSAlert()
         if wasBreak {
-            alert.messageText = "休息结束"
-            alert.informativeText = "回来写吧。再来一个 25 分钟？今天已完成 \(doc.todayPomodoros) 个番茄。"
-            alert.addButton(withTitle: "再来一个")
-            alert.addButton(withTitle: "稍后")
-            if alert.runModal() == .alertFirstButtonReturn { startPomodoro(isBreak: false) }
+            // 休息结束也只用软提示：不打断，让它自己消失
+            showToast(title: "休息结束",
+                      detail: "回来写吧。今天已完成 \(doc.todayPomodoros) 个番茄。",
+                      seconds: 14,
+                      buttons: [("再来一个", Selector(("startPomodoroFromMenu:"))),
+                                ("稍后", Selector(("dismissToast:")))])
         } else {
-            alert.messageText = "25 分钟到了"
-            alert.informativeText = "站起来走两步、喝口水，眼睛看远处二十秒。今天已完成 \(doc.todayPomodoros) 个番茄。"
-            alert.addButton(withTitle: "休息 5 分钟")
-            alert.addButton(withTitle: "继续写")
-            if alert.runModal() == .alertFirstButtonReturn {
-                startPomodoro(isBreak: true)
-            } else {
-                startupNote = "继续写：今天已完成 \(doc.todayPomodoros) 个番茄"
-                refreshBar()
-            }
+            showToast(title: "25 分钟到了",
+                      detail: "站起来走两步、喝口水，看一会儿远处。今天已完成 \(doc.todayPomodoros) 个番茄。",
+                      seconds: 18,
+                      buttons: [("休息 5 分钟", Selector(("startBreakFromToast:"))),
+                                ("继续写", Selector(("dismissToast:")))])
         }
+        startupNote = "25 分钟专注完成 · 今天 \(doc.todayPomodoros) 个番茄"
+        refreshBar()
+    }
+
+    @objc func startBreakFromToast(_ sender: Any?) {
+        dismissToast()
+        startPomodoro(isBreak: true)
     }
 
     func updatePomodoroButton() {
-        guard let b = pomoButton else { return }
-        guard let end = pomoEndAt else {
-            b.title = "🍅"
-            b.toolTip = "番茄钟：25 分钟专注 + 5 分钟休息"
-            return
+        if let end = pomoEndAt {
+            let total: CGFloat = pomoIsBreak ? 300 : 1500
+            let left = max(0, end.timeIntervalSinceNow)
+            let p = 1 - CGFloat(left) / total
+            pomoButton?.ringProgress = p
+            pomoButton?.ringColor = pomoIsBreak ? .systemBlue : .systemRed
+            pomoButton?.glyph = pomoIsBreak ? "☕" : "番"
+            pomoButton?.toolTip = (pomoIsBreak ? "休息中" : "专注中") + "，还剩 " + String(format: "%02d:%02d", Int(left) / 60, Int(left) % 60) + "，点一下暂停"
+        } else {
+            pomoButton?.ringProgress = 0
+            pomoButton?.ringColor = .systemRed
+            pomoButton?.glyph = "番"
+            pomoButton?.toolTip = "番茄钟：点一下开始 25 分钟专注"
         }
-        let left = max(0, Int(end.timeIntervalSinceNow.rounded(.up)))
-        b.title = String(format: "%@ %02d:%02d", pomoIsBreak ? "☕︎" : "🍅", left / 60, left % 60)
-        b.toolTip = pomoIsBreak ? "休息中，点一下暂停" : "专注中，点一下暂停"
+        refreshStatusItem()
     }
 }

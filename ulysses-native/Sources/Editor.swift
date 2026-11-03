@@ -16,7 +16,11 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var pomoEndAt: Date?
     var pomoIsBreak = false
     var pomoTimer: Timer?
-    var pomoButton: NSButton?
+    var pomoButton: RingButton?
+    var goalRing: RingButton?
+    var statusItem: NSStatusItem?
+    var toastPanel: ToastPanel?
+    var toastTimer: Timer?
     var lastActivityAt = Date()
     var sessionTimer: Timer?
     var sessionAccrued = 0
@@ -192,25 +196,9 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         sidebarFooter.spacing = 6
         sidebarFooter.alignment = .centerY
         sidebarFooter.translatesAutoresizingMaskIntoConstraints = false
-        let footGoal = NSButton(title: "目标", target: self, action: Selector(("setGoalDialog:")))
-        footGoal.bezelStyle = .texturedRounded
-        footGoal.controlSize = .small
-        footGoal.font = NSFont.systemFont(ofSize: 10.5)
-        footGoal.toolTip = "设定本篇的目标字数，底部会出现进度条"
-        let footStats = NSButton(title: "统计", target: self, action: Selector(("showStatsPanel:")))
-        footStats.bezelStyle = .texturedRounded
-        footStats.controlSize = .small
-        footStats.font = NSFont.systemFont(ofSize: 10.5)
-        footStats.toolTip = "最近 30 天的写作曲线（每天写了多少字）"
-        let footGuide = NSButton(title: "指南", target: self, action: Selector(("showGuide:")))
-        footGuide.bezelStyle = .texturedRounded
-        footGuide.controlSize = .small
-        footGuide.font = NSFont.systemFont(ofSize: 10.5)
-        footGuide.toolTip = "打开使用指南（也能在「帮助」菜单里找到）"
+        // 页脚只留一句提示：其余入口都在菜单栏图标和菜单里，顶栏/页脚越空越好
+        footHint.toolTip = "右键文稿或分组可以新建/重命名/移动/删除；也可以直接把文稿拖进分组"
         sidebarFooter.addArrangedSubview(footHint)
-        sidebarFooter.addArrangedSubview(footGoal)
-        sidebarFooter.addArrangedSubview(footStats)
-        sidebarFooter.addArrangedSubview(footGuide)
         sidebarFooter.setHuggingPriority(.defaultLow, for: .horizontal)
 
         // 侧栏与正文之间的一条细分隔线（约束在主约束块里，避免引用尚未入树的视图）
@@ -320,15 +308,9 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let groups: [[(String, String, String)]] = [
             [("＋新建", "addSheet:", "新建一篇文稿"),
              ("▤分组", "addFolder:", "新建一个分组（文件夹），文稿可以拖进去")],
-            [("▾ 文件", "__fileMenu__", "导入 / 导出 / 成书")],
-            [("侧栏", "toggleSidebar:", "收起或展开左侧文稿树"),
-             ("打字机", "toggleTypewriter:", "光标所在行始终停在屏幕中间，眼睛不用上下找"),
-             ("排版", "toggleMarkdown:", "按 Markdown 语法实时排版标题、加粗与引用"),
-             ("缩进", "toggleIndent:", "每段首行缩进两字（中文长篇的版面习惯）"),
-             ("专注", "toggleFocus:", "收起侧栏与工具栏，只留正文（Esc 退出）")],
-            [("🍅", "togglePomodoro:", "番茄钟：25 分钟专注 + 5 分钟休息"),
-             ("外观", themeSel, "切换纸色、深浅与正文字号")],
-            [("指南", "showGuide:", "功能说明与使用指南")],
+            [("侧栏", "toggleSidebar:", "收起或展开左侧文稿树")],
+            [("__pomoRing__", "togglePomodoro:", "番茄钟：点一下开始 25 分钟专注，再点暂停"),
+             ("__goalRing__", "showStatsPanel:", "今日写作进度：点开看最近 30 天的统计")],
         ]
         toolStack = NSStackView()
         toolStack.orientation = .horizontal
@@ -368,6 +350,24 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                     toolStack.addArrangedSubview(pop)
                     continue
                 }
+                if title == "__pomoRing__" {
+                    let ring = RingButton(action: Selector(("togglePomodoro:")), tooltip: tip)
+                    ring.target = self
+                    ring.glyph = "番"
+                    ring.ringColor = .systemRed
+                    pomoButton = ring
+                    toolStack.addArrangedSubview(ring)
+                    continue
+                }
+                if title == "__goalRing__" {
+                    let ring = RingButton(action: Selector(("showStatsPanel:")), tooltip: tip)
+                    ring.target = self
+                    ring.glyph = "今"
+                    ring.ringColor = .systemBlue
+                    goalRing = ring
+                    toolStack.addArrangedSubview(ring)
+                    continue
+                }
                 let b = NSButton(title: title, target: self, action: Selector((sel)))
                 b.bezelStyle = .texturedRounded
                 b.controlSize = .small
@@ -375,7 +375,6 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 b.isBordered = true
                 b.toolTip = tip
                 if sel == "toggleSidebar:" { sidebarToggleButton = b }
-                if sel == "togglePomodoro:" { pomoButton = b }
                 toolStack.addArrangedSubview(b)
             }
         }
@@ -483,6 +482,19 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // 仪表模块接上后刷新进度
         let sel = Selector(("refreshGoalProgress:"))
         if responds(to: sel) { perform(sel, with: nil) }
+
+        // 今日进度环：没设目标时用"今天的字数"给个极淡的环，免得永远空着
+        let goal = doc.dailyGoal
+        if goal > 0 {
+            goalRing?.ringProgress = CGFloat(min(1, Double(doc.todayWritten) / Double(goal)))
+            goalRing?.ringColor = doc.todayWritten >= goal ? .systemGreen : .systemBlue
+            goalRing?.toolTip = "今日 \(doc.todayWritten)/\(goal) 字，点开看统计"
+        } else {
+            goalRing?.ringProgress = 0
+            goalRing?.ringColor = .systemBlue
+            goalRing?.toolTip = "还没设今日目标，点开看统计"
+        }
+        refreshStatusItem()
     }
 
     // MARK: 委托回调
