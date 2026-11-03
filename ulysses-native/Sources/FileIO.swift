@@ -90,25 +90,19 @@ extension EditorRoot {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
         let mdType = UTType("net.daringfireball.markdown") ?? .plainText
-        panel.allowedContentTypes = [mdType, .plainText]
-        panel.message = "选择要导入的 Markdown / 文本文件"
+        var types: [UTType] = [mdType, .plainText, .rtf]
+        if let docx = UTType("org.openxmlformats.wordprocessingml.document") { types.append(docx) }
+        panel.allowedContentTypes = types
+        panel.message = "选择要导入的文件（Markdown / 文本 / Word / RTF，可多选）"
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
 
-        var newIds: [String] = []
-        for url in panel.urls.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            let title = url.deletingPathExtension().lastPathComponent
-            let s = Sheet(id: UUID().uuidString, title: title, content: text)
-            doc.sheets.append(s)
-            newIds.append(s.id)
-        }
-        guard let last = newIds.last else {
-            barLabel.stringValue = "导入失败：无法读取所选文件"
-            return
-        }
-        switchTo(last)   // 自带 refreshTable + persistNow，切到最后一篇
-        if newIds.count > 1 {
-            barLabel.stringValue = "已导入 \(newIds.count) 篇文稿"
+        let result = importFiles(at: panel.urls)
+        if result.imported == 0 {
+            barLabel.stringValue = "导入失败：\(result.failed) 个文件读不出文字"
+        } else if result.failed > 0 {
+            barLabel.stringValue = "已导入 \(result.imported) 篇到「\(result.folder)」，\(result.failed) 个失败"
+        } else {
+            barLabel.stringValue = "已导入 \(result.imported) 篇到「\(result.folder)」"
         }
     }
 
