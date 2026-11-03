@@ -78,7 +78,11 @@ struct DocState: Codable {
 
 ~/Library/Application Support/UlyssesNative/state.json
 
-这是唯一的数据文件。想备份，复制它就行；想换电脑，把它带过去。
+同一个文件夹里还有两份保险：
+- state.json.bak：上一版（每次保存前自动留）
+- Backups/ 里的时间戳快照：每 5 分钟一份，留最近 20 份
+
+文件菜单里有「立即备份一份」「从备份恢复…」「打开备份文件夹」。真出事了，主文件读不出来时会自动从 .bak 或最近快照恢复，状态栏会告诉你发生了什么。
 
 ## 少记快捷键
 
@@ -120,13 +124,30 @@ struct LegacyDoc: Codable {
 
 enum Vault {
     static var dir: URL {
+        // 测试/探针可以用环境变量把整个文稿库指到临时目录，避免碰真实数据
+        if let custom = ProcessInfo.processInfo.environment["ULYSSES_HOME"], !custom.isEmpty {
+            return URL(fileURLWithPath: custom, isDirectory: true)
+        }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent("UlyssesNative", isDirectory: true)
     }
     static var file: URL { dir.appendingPathComponent("state.json") }
+    /// 上一次成功保存前的旧文件，主文件坏掉时用
+    static var backupFile: URL { dir.appendingPathComponent("state.json.bak") }
+    /// 定时快照目录
+    static var backupsDir: URL { dir.appendingPathComponent("Backups", isDirectory: true) }
+
+    /// 手动或定时快照的间隔（秒）：自动保存很频繁，但快照不需要那么频繁
+    static let snapshotInterval: TimeInterval = 300
+    static let maxSnapshots = 20
+    private static var lastSnapshotAt = Date.distantPast
+
+    /// 本次启动是否发生了「主文件坏了、从备份恢复」的情况，界面据此提示
+    static var lastRecoveryNote: String? = nil
 
     static func ensure() {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: backupsDir, withIntermediateDirectories: true)
     }
 
     static func load() -> DocState {
@@ -135,6 +156,10 @@ enum Vault {
         if let fresh = try? JSONDecoder().decode(DocState.self, from: data),
            !fresh.sheets.isEmpty, fresh.sheet(id: fresh.activeId) != nil {
             return fresh
+        }
+        if let (recovered, note) = Vault.recover() {
+            Vault.lastRecoveryNote = note
+            return recovered
         }
         if let legacy = try? JSONDecoder().decode(LegacyDoc.self, from: data) {
             let s = Sheet(id: UUID().uuidString,
@@ -151,14 +176,109 @@ enum Vault {
     static func save(_ doc: DocState) -> Bool {
         ensure()
         do {
+            let data = try JSONEncoder().encode(doc)
             let tmp = file.appendingPathExtension("tmp")
-            try JSONEncoder().encode(doc).write(to: tmp, options: .atomic)
+            try data.write(to: tmp, options: .atomic)
+            // 覆盖前把旧文件留一份，防止新文件写坏后无处可退
+            if let old = try? Data(contentsOf: file), !old.isEmpty {
+                try? old.write(to: backupFile, options: .atomic)
+            }
             try? FileManager.default.removeItem(at: file)
             try FileManager.default.moveItem(at: tmp, to: file)
+            maybeSnapshot(data)
             return true
         } catch {
             return false
         }
+    }
+
+    /// 每隔 snapshotInterval 存一份带时间戳的快照，最多留 maxSnapshots 份
+    private static func maybeSnapshot(_ data: Data) {
+        let now = Date()
+        if now.timeIntervalSince(lastSnapshotAt) < snapshotInterval { return }
+        lastSnapshotAt = now
+        writeSnapshot(data)
+    }
+
+    /// 强制立刻存一份快照（「立即备份」按钮、退出前都可以调）
+    @discardableResult
+    static func snapshotNow(_ doc: DocState) -> URL? {
+        ensure()
+        guard let data = try? JSONEncoder().encode(doc) else { return nil }
+        lastSnapshotAt = Date()
+        return writeSnapshot(data)
+    }
+
+    @discardableResult
+    private static func writeSnapshot(_ data: Data) -> URL? {
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        let name = "state-\(f.string(from: Date())).json"
+        let url = backupsDir.appendingPathComponent(name)
+        guard (try? data.write(to: url, options: .atomic)) != nil else { return nil }
+        rotateSnapshots()
+        return url
+    }
+
+    struct BackupEntry {
+        let url: URL
+        let date: Date
+        let sheetCount: Int
+        var title: String {
+            let df = DateFormatter()
+            df.dateFormat = "M月d日 HH:mm"
+            return "\(df.string(from: date))　\(sheetCount) 篇"
+        }
+    }
+
+    /// 所有可用快照，新的排前面
+    static func listBackups() -> [BackupEntry] {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: backupsDir.path) else { return [] }
+        var out: [BackupEntry] = []
+        for n in names where n.hasPrefix("state-") && n.hasSuffix(".json") {
+            let url = backupsDir.appendingPathComponent(n)
+            guard let data = try? Data(contentsOf: url),
+                  let doc = try? JSONDecoder().decode(DocState.self, from: data) else { continue }
+            let attrs = try? fm.attributesOfItem(atPath: url.path)
+            let date = (attrs?[.modificationDate] as? Date) ?? Date.distantPast
+            out.append(BackupEntry(url: url, date: date, sheetCount: doc.sheets.count))
+        }
+        return out.sorted { $0.date > $1.date }
+    }
+
+    static func restore(from url: URL) -> DocState? {
+        guard let data = try? Data(contentsOf: url),
+              let doc = try? JSONDecoder().decode(DocState.self, from: data),
+              !doc.sheets.isEmpty else { return nil }
+        return doc
+    }
+
+    private static func rotateSnapshots() {
+        // 按文件本身轮转（不依赖能不能解析），这样坏掉的快照也会被清出去
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: backupsDir.path) else { return }
+        var files: [(URL, Date)] = []
+        for n in names where n.hasPrefix("state-") && n.hasSuffix(".json") {
+            let url = backupsDir.appendingPathComponent(n)
+            let d = (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+            files.append((url, d ?? Date.distantPast))
+        }
+        if files.count <= maxSnapshots { return }
+        let sorted = files.sorted { $0.1 > $1.1 }
+        for f in sorted[maxSnapshots...] { try? fm.removeItem(at: f.0) }
+    }
+
+    /// 文件坏了也不至于丢光：主文件 → .bak → 最新快照
+    static func recover() -> (DocState, String)? {
+        if let data = try? Data(contentsOf: backupFile),
+           let doc = try? JSONDecoder().decode(DocState.self, from: data), !doc.sheets.isEmpty {
+            return (doc, "主文件读取失败，已从上一版本（state.json.bak）恢复")
+        }
+        if let newest = listBackups().first, let doc = restore(from: newest.url) {
+            return (doc, "主文件与上一版本都不可用，已从 \(newest.title) 的快照恢复")
+        }
+        return nil
     }
 }
 

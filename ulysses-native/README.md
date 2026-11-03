@@ -84,7 +84,17 @@ open build/UlyssesNative.app
 | 内容 | 路径 |
 | --- | --- |
 | 全部文稿与设置 | `~/Library/Application Support/UlyssesNative/state.json` |
+| 上一版（自动） | `~/Library/Application Support/UlyssesNative/state.json.bak` |
+| 定时快照（自动，留最近 20 份） | `~/Library/Application Support/UlyssesNative/Backups/` |
 | 导出的 Markdown | `~/Documents/UlyssesNative/` |
+
+App 内置了三层保险，日常不需要你操心：
+
+1. **每次保存前**把上一版留成 `state.json.bak`（一步后悔药）；
+2. **每 5 分钟**存一份带时间戳的快照到 `Backups/`，最多 20 份（慢慢后悔药）；
+3. **主文件读不出来时**自动按「主文件 → `.bak` → 最新快照」的顺序恢复，状态栏会写明发生了什么。
+
+手动控制都在**文件菜单**里：`立即备份一份`（马上存快照，写长稿前点一下很安心）、`从备份恢复…`（挑一份快照换回来，当前内容会先自动存一份快照，所以恢复错了也不会丢）、`打开备份文件夹`。
 
 - **复制即备份**：把 `state.json` 拷到 U 盘或网盘，就是一次完整备份。
 - **换机带走**：在新电脑上放回同一路径，打开就是原来的文库。

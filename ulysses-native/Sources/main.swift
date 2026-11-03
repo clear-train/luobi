@@ -49,6 +49,10 @@ for (name, items) in [
         { let s = NSMenuItem.separator(); return s }(),
         NSMenuItem(title: "删除当前文稿…", action: Selector(("deleteActiveSheet:")), keyEquivalent: ""),
         NSMenuItem(title: "立即保存", action: Selector(("saveNow:")), keyEquivalent: "s"),
+        { let s = NSMenuItem.separator(); return s }(),
+        NSMenuItem(title: "立即备份一份", action: Selector(("backupNow:")), keyEquivalent: ""),
+        NSMenuItem(title: "从备份恢复…", action: Selector(("showBackupPanel:")), keyEquivalent: ""),
+        NSMenuItem(title: "打开备份文件夹", action: Selector(("openBackupFolder:")), keyEquivalent: ""),
     ]),
     ("编辑", [
         NSMenuItem(title: "撤销", action: Selector(("undo:")), keyEquivalent: "z"),

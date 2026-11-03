@@ -8,6 +8,8 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var scrollView = NSScrollView()
     var textView = NSTextView()
     var barLabel = NSTextField()
+    /// 启动时若自动从备份恢复过，或者刚手动备份过，在这条状态栏里说一句
+    var startupNote: String? = Vault.lastRecoveryNote
     var searchField = NSSearchField()
     var plusButton = NSButton()
     var folderButton = NSButton()
@@ -364,13 +366,14 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return statCJK(c) + statLatin(c)
     }
 
-    private func refreshBar(saved: Bool? = nil) {
+    func refreshBar(saved: Bool? = nil) {
         let n = activeCount
         let count = n == 0 ? "尚无字数" : "约 \(n) 字"
         var s = "Ulysses Native · \(doc.sheets.count) 篇 · " + count
         if let saved = saved {
             s += " · " + (saved ? "已自动保存" : "保存失败：请把 App 拖进「应用程序」后从访达打开")
         }
+        if let note = startupNote { s += " · " + note }
         barLabel.stringValue = s
         // 仪表模块接上后刷新进度
         let sel = Selector(("refreshGoalProgress:"))
