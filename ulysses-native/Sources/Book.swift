@@ -39,6 +39,97 @@ extension DocState {
     }
 
     /// Markdown 版本：保留原来的 Markdown 标记，方便你再编辑
+    /// 导出 Word 能直接打开的 RTF。
+    /// 选 RTF 不选 .docx 的原因：docx 是 zip + OOXML，要自己写压缩和一堆 XML；
+    /// 而 RTF 是纯文本格式，AppKit 原生支持写出，Word/WPS/Pages 都能打开。
+    func bookRTF(title: String, scope: String? = nil) -> Data? {
+        let chapters = bookChapters(scope: scope)
+        let bodyFont = NSFont(name: "STSongti-SC-Regular", size: 12) ?? NSFont.systemFont(ofSize: 12)
+        let out = NSMutableAttributedString()
+
+        func para(_ align: NSTextAlignment, spacing: CGFloat, indent: CGFloat = 0, line: CGFloat = 6) -> NSParagraphStyle {
+            let p = NSMutableParagraphStyle()
+            p.alignment = align
+            p.paragraphSpacing = spacing
+            p.lineSpacing = line
+            p.firstLineHeadIndent = indent
+            return p
+        }
+
+        let titleFont = NSFont(name: "STSongti-SC-Bold", size: 22) ?? NSFont.boldSystemFont(ofSize: 22)
+        out.append(NSAttributedString(string: title + "\n", attributes: [
+            .font: titleFont,
+            .foregroundColor: NSColor.black,
+            .paragraphStyle: para(.center, spacing: 18, line: 8),
+        ]))
+
+        let words = chapters.reduce(0) {
+            $0 + ($1.isGroup ? 0 : statCJK($1.content) + statLatin($1.content))
+        }
+        out.append(NSAttributedString(string: "共 \(chapters.filter { !$0.isGroup }.count) 章 · 约 \(words) 字\n\n", attributes: [
+            .font: bodyFont,
+            .foregroundColor: NSColor.darkGray,
+            .paragraphStyle: para(.center, spacing: 14),
+        ]))
+
+        for ch in chapters {
+            if ch.isGroup {
+                let size: CGFloat = ch.level <= 1 ? 16 : 14
+                let hFont = NSFont(name: "STSongti-SC-Bold", size: size) ?? NSFont.boldSystemFont(ofSize: size)
+                out.append(NSAttributedString(string: ch.title + "\n", attributes: [
+                    .font: hFont,
+                    .foregroundColor: NSColor.black,
+                    .paragraphStyle: para(.left, spacing: 10, line: 8),
+                ]))
+                continue
+            }
+
+            out.append(NSAttributedString(string: ch.title + "\n", attributes: [
+                .font: (NSFont(name: "STSongti-SC-Bold", size: 14) ?? NSFont.boldSystemFont(ofSize: 14)),
+                .foregroundColor: NSColor.black,
+                .paragraphStyle: para(.left, spacing: 8, line: 8),
+            ]))
+
+            for raw in ch.content.components(separatedBy: "\n") {
+                let line = raw.trimmingCharacters(in: .whitespaces)
+                if line.isEmpty {
+                    out.append(NSAttributedString(string: "\n", attributes: [.font: bodyFont]))
+                    continue
+                }
+                if line.hasPrefix("#") {
+                    let text = String(line.drop { $0 == "#" }).trimmingCharacters(in: .whitespaces)
+                    out.append(NSAttributedString(string: text + "\n", attributes: [
+                        .font: (NSFont(name: "STSongti-SC-Bold", size: 13) ?? NSFont.boldSystemFont(ofSize: 13)),
+                        .foregroundColor: NSColor.black,
+                        .paragraphStyle: para(.left, spacing: 8, line: 8),
+                    ]))
+                    continue
+                }
+                if line.hasPrefix(">") {
+                    let text = String(line.dropFirst()).trimmingCharacters(in: .whitespaces)
+                    out.append(NSAttributedString(string: text + "\n", attributes: [
+                        .font: NSFont(name: "STSongti-SC-Regular", size: 11.5) ?? NSFont.systemFont(ofSize: 11.5),
+                        .foregroundColor: NSColor.darkGray,
+                        .paragraphStyle: para(.left, spacing: 6, indent: 18, line: 5),
+                    ]))
+                    continue
+                }
+                out.append(NSAttributedString(string: line + "\n", attributes: [
+                    .font: bodyFont,
+                    .foregroundColor: NSColor.black,
+                    .paragraphStyle: para(.justified, spacing: 6, indent: 24, line: 6),
+                ]))
+            }
+            out.append(NSAttributedString(string: "\n", attributes: [.font: bodyFont]))
+        }
+
+        let attrs: [NSAttributedString.DocumentAttributeKey: Any] = [
+            .documentType: NSAttributedString.DocumentType.rtf,
+            .title: title,
+        ]
+        return try? out.data(from: NSRange(location: 0, length: out.length), documentAttributes: attrs)
+    }
+
     func bookMarkdown(title: String, scope: String?) -> String {
         let chapters = bookChapters(scope: scope)
         var lines: [String] = []
@@ -187,7 +278,7 @@ extension EditorRoot {
         titleField.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
 
         let formatPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-        formatPopup.addItems(withTitles: ["网页（.html，双击就能看/打印）", "Markdown（.md，还能继续改）"])
+        formatPopup.addItems(withTitles: ["网页（.html，双击就能看/打印）", "Markdown（.md，还能继续改）", "Word（.rtf，发给编辑直接能开）"])
 
         let scopePopup = NSPopUpButton(frame: .zero, pullsDown: false)
         scopePopup.addItems(withTitles: ["全部文稿", "当前分组及其子分组"])
@@ -209,14 +300,11 @@ extension EditorRoot {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let title = titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let bookTitle = title.isEmpty ? "我的书" : title
-        let asHTML = formatPopup.indexOfSelectedItem == 0
+        let format = formatPopup.indexOfSelectedItem
         let scope: String? = scopePopup.indexOfSelectedItem == 1
             ? doc.sheets.first(where: { $0.id == doc.activeId })?.folderId
             : nil
-
-        let content = asHTML ? doc.bookHTML(title: bookTitle, scope: scope)
-                             : doc.bookMarkdown(title: bookTitle, scope: scope)
-        let ext = asHTML ? "html" : "md"
+        let ext = ["html", "md", "rtf"][max(0, min(2, format))]
         let words = doc.bookChapters(scope: scope).reduce(0) {
             $0 + ($1.isGroup ? 0 : statCJK($1.content) + statLatin($1.content))
         }
@@ -224,7 +312,18 @@ extension EditorRoot {
         do {
             try FileManager.default.createDirectory(at: bookExportDir, withIntermediateDirectories: true)
             let url = bookUniqueURL(baseName: bookSafeName(bookTitle), ext: ext)
-            try Data(content.utf8).write(to: url, options: .atomic)
+            if ext == "rtf" {
+                guard let rtf = doc.bookRTF(title: bookTitle, scope: scope) else {
+                    barLabel.stringValue = "导出 Word 失败：系统没写出 RTF（可以选网页或 Markdown）"
+                    return
+                }
+                try rtf.write(to: url, options: .atomic)
+            } else {
+                let content = (ext == "html")
+                    ? doc.bookHTML(title: bookTitle, scope: scope)
+                    : doc.bookMarkdown(title: bookTitle, scope: scope)
+                try Data(content.utf8).write(to: url, options: .atomic)
+            }
             let short = url.path.replacingOccurrences(of: "/Users/\(NSUserName())", with: "~")
             barLabel.stringValue = "已成书：\(short) · 约 \(words) 字"
             NSWorkspace.shared.activateFileViewerSelecting([url])
