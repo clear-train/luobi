@@ -36,7 +36,7 @@ fi
 
 SDKROOT="$SDKROOT_DIR/$CHOSEN" swiftc -O -module-cache-path "$MODULECACHE" \
     -o "$APP/Contents/MacOS/ulysses-lite" main.swift \
-    -framework AppKit -framework WebKit -framework Network
+    -framework AppKit -framework WebKit
 
 codesign --force --sign - "$APP" 2>/dev/null || true
 
