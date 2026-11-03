@@ -46,6 +46,7 @@ for (name, items) in [
         { let s = NSMenuItem.separator(); return s }(),
         NSMenuItem(title: "导出当前文稿…", action: Selector(("exportActiveSheet:")), keyEquivalent: "e"),
         NSMenuItem(title: "导出全部文稿…", action: Selector(("exportAllSheets:")), keyEquivalent: ""),
+        NSMenuItem(title: "导出整本书…", action: Selector(("exportBook:")), keyEquivalent: ""),
         { let s = NSMenuItem.separator(); return s }(),
         NSMenuItem(title: "删除当前文稿…", action: Selector(("deleteActiveSheet:")), keyEquivalent: ""),
         NSMenuItem(title: "立即保存", action: Selector(("saveNow:")), keyEquivalent: "s"),
