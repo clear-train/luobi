@@ -184,7 +184,7 @@ extension EditorRoot {
         let g = doc.cardGraph()
         let preset = ThemePresets.preset(doc.theme)
 
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 760, height: 560),
+        let panel = LuobiSheetPanel(contentRect: NSRect(x: 0, y: 0, width: 760, height: 560),
                             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         panel.title = "人物关系图 · \(g.nodes.count) 人 / \(g.edges.count) 条关系"
         panel.isReleasedWhenClosed = false
@@ -228,12 +228,12 @@ extension EditorRoot {
             hint.trailingAnchor.constraint(lessThanOrEqualTo: host.trailingAnchor, constant: -16),
             hint.bottomAnchor.constraint(equalTo: host.bottomAnchor, constant: -10),
         ])
-        panel.contentView = host
+        let wrap = wrapWithFooter(host)
+        wrap.frame = panel.contentLayoutRect
+        wrap.autoresizingMask = [.width, .height]
+        panel.contentView = wrap
+        panel.onEsc = { [weak panel] in panel?.closeSelf() }
 
-        if let win = window {
-            win.beginSheet(panel) { _ in }
-        } else {
-            panel.makeKeyAndOrderFront(nil)
-        }
+        presentSheet(panel)
     }
 }

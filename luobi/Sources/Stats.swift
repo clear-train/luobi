@@ -103,7 +103,8 @@ extension EditorRoot {
     /// 统一的面板关闭入口：sheet 用 endSheet，独立窗口直接 close。
     /// （坑：对 sheet 调 performClose 不会结束 sheet，看起来就是"点了没反应"）
     @objc func dismissSheetPanel(_ sender: Any?) {
-        let win = (sender as? NSView)?.window ?? NSApp.keyWindow
+        // sender 可能是按钮（NSView）、也可能是面板自己（NSWindow）
+        let win = (sender as? NSWindow) ?? (sender as? NSView)?.window ?? NSApp.keyWindow
         guard let target = win else { return }
         if let parent = target.sheetParent {
             parent.endSheet(target)
@@ -116,7 +117,7 @@ extension EditorRoot {
         let stats = doc.writeStats(days: 30)
         let goal = doc.dailyGoal
 
-        let panel = NSPanel(
+        let panel = LuobiSheetPanel(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 380),
             styleMask: [.titled, .closable],
             backing: .buffered, defer: false)
@@ -173,11 +174,6 @@ extension EditorRoot {
         close.frame = NSRect(x: 552, y: 10, width: 64, height: 26)
         content.addSubview(close)
 
-        if let win = window {
-            win.beginSheet(panel) { _ in }
-        } else {
-            panel.center()
-            panel.makeKeyAndOrderFront(nil)
-        }
+        presentSheet(panel)
     }
 }

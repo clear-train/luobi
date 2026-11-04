@@ -102,7 +102,7 @@ extension EditorRoot {
     @objc func showReplacePanel(_ sender: Any?) {
         let preset = ThemePresets.preset(doc.theme)
 
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 248),
+        let panel = LuobiSheetPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 248),
                             styleMask: [.titled, .closable], backing: .buffered, defer: false)
         panel.title = "查找与替换"
         if ThemePresets.preset(doc.theme).isDark { panel.appearance = NSAppearance(named: .darkAqua) }
@@ -236,7 +236,10 @@ extension EditorRoot {
 
         cancel.target = helper
         cancel.action = Selector(("performCancel:"))
-        helper.onCancel = { [weak panel] in panel?.close() }
+        helper.onCancel = { [weak panel] in
+            guard let p = panel else { return }
+            if let parent = p.sheetParent { parent.endSheet(p) } else { p.close() }
+        }
 
         // 面板关掉后把通知观察者撤掉，避免泄漏
         _ = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification,
@@ -249,7 +252,7 @@ extension EditorRoot {
         objc_setAssociatedObject(panel, Unmanaged.passUnretained(panel).toOpaque(), helper, .OBJC_ASSOCIATION_RETAIN)
 
         panel.contentView = host
-        if let win = window { win.beginSheet(panel) { _ in } } else { panel.makeKeyAndOrderFront(nil) }
+        presentSheet(panel)
         panel.makeFirstResponder(findField)
     }
 }

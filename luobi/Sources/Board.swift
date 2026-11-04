@@ -219,7 +219,7 @@ private extension Array {
 extension EditorRoot {
     @objc func showBoard(_ sender: Any?) {
         let preset = ThemePresets.preset(doc.theme)
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 860, height: 620),
+        let panel = LuobiSheetPanel(contentRect: NSRect(x: 0, y: 0, width: 860, height: 620),
                             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         panel.title = "大纲板"
         if ThemePresets.preset(doc.theme).isDark { panel.appearance = NSAppearance(named: .darkAqua) }
@@ -280,9 +280,13 @@ extension EditorRoot {
             scroll.trailingAnchor.constraint(equalTo: host.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: host.bottomAnchor),
         ])
-        panel.contentView = host
+        let wrap = wrapWithFooter(host)
+        wrap.frame = panel.contentLayoutRect
+        wrap.autoresizingMask = [.width, .height]
+        panel.contentView = wrap
+        panel.onEsc = { [weak panel] in panel?.closeSelf() }
 
-        if let win = window { win.beginSheet(panel) { _ in } } else { panel.makeKeyAndOrderFront(nil) }
+        presentSheet(panel)
 
         // 面板真正拿到尺寸后再排版（否则宽度是 0）
         DispatchQueue.main.async {

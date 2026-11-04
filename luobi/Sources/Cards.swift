@@ -291,7 +291,7 @@ extension EditorRoot {
 
     @objc func showCardsOverview(_ sender: Any?) {
         let groups = cardsGrouped()
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 680, height: 520),
+        let panel = LuobiSheetPanel(contentRect: NSRect(x: 0, y: 0, width: 680, height: 520),
                             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         panel.title = "人物一览 · \(doc.cardSheets.count) 张"
         panel.isReleasedWhenClosed = false
@@ -386,13 +386,13 @@ extension EditorRoot {
             container.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
             container.heightAnchor.constraint(greaterThanOrEqualTo: scroll.contentView.heightAnchor),
         ])
-        panel.contentView = scroll
+        let wrap = wrapWithFooter(scroll)
+        wrap.frame = panel.contentLayoutRect
+        wrap.autoresizingMask = [.width, .height]
+        panel.contentView = wrap
+        panel.onEsc = { [weak panel] in panel?.closeSelf() }
 
-        if let win = window {
-            win.beginSheet(panel) { _ in }
-        } else {
-            panel.makeKeyAndOrderFront(nil)
-        }
+        presentSheet(panel)
     }
 }
 
@@ -417,7 +417,7 @@ extension EditorRoot {
         let list = doc.mentions(of: name)
         let preset = ThemePresets.preset(doc.theme)
 
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 440),
+        let panel = LuobiSheetPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 440),
                             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         panel.title = "\(name) · 出场章节"
         panel.isReleasedWhenClosed = false
@@ -489,12 +489,12 @@ extension EditorRoot {
             container.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
             container.heightAnchor.constraint(greaterThanOrEqualTo: scroll.contentView.heightAnchor),
         ])
-        panel.contentView = scroll
+        let wrap2 = wrapWithFooter(scroll)
+        wrap2.frame = panel.contentLayoutRect
+        wrap2.autoresizingMask = [.width, .height]
+        panel.contentView = wrap2
+        panel.onEsc = { [weak panel] in panel?.closeSelf() }
 
-        if let win = window {
-            win.beginSheet(panel) { _ in }
-        } else {
-            panel.makeKeyAndOrderFront(nil)
-        }
+        presentSheet(panel)
     }
 }

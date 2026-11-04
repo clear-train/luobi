@@ -75,7 +75,7 @@ extension EditorRoot {
         let stats = doc.rhythm()
         let preset = ThemePresets.preset(doc.theme)
 
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 700, height: 430),
+        let panel = LuobiSheetPanel(contentRect: NSRect(x: 0, y: 0, width: 700, height: 430),
                             styleMask: [.titled, .closable], backing: .buffered, defer: false)
         panel.title = "写作节奏"
         if preset.isDark { panel.appearance = NSAppearance(named: .darkAqua) }
@@ -131,12 +131,7 @@ extension EditorRoot {
         close.frame = NSRect(x: 612, y: 12, width: 64, height: 26)
         content.addSubview(close)
 
-        if let win = window {
-            win.beginSheet(panel) { _ in }
-        } else {
-            panel.center()
-            panel.makeKeyAndOrderFront(nil)
-        }
+        presentSheet(panel)
     }
 
     private func accentColorFor(_ preset: ThemePreset) -> NSColor {

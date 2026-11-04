@@ -94,7 +94,7 @@ extension EditorRoot {
         let preset = ThemePresets.preset(doc.theme)
         let entries = SheetHistory.list(sheetId: sheet.id)
 
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 660, height: 470),
+        let panel = LuobiSheetPanel(contentRect: NSRect(x: 0, y: 0, width: 660, height: 470),
                             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         panel.title = "历史版本 · \(sheet.title)"
         if ThemePresets.preset(doc.theme).isDark { panel.appearance = NSAppearance(named: .darkAqua) }
@@ -215,7 +215,10 @@ extension EditorRoot {
         }
         close.target = helper
         close.action = Selector(("performCancel:"))
-        helper.onCancel = { [weak panel] in panel?.close() }
+        helper.onCancel = { [weak panel] in
+            guard let p = panel else { return }
+            if let parent = p.sheetParent { parent.endSheet(p) } else { p.close() }
+        }
         objc_setAssociatedObject(panel, Unmanaged.passUnretained(panel).toOpaque(), helper, .OBJC_ASSOCIATION_RETAIN)
 
         for v in [hint, listScroll, prevScroll, restore, del, close] { host.addSubview(v) }
@@ -242,6 +245,6 @@ extension EditorRoot {
             del.centerYAnchor.constraint(equalTo: close.centerYAnchor),
         ])
         panel.contentView = host
-        if let win = window { win.beginSheet(panel) { _ in } } else { panel.makeKeyAndOrderFront(nil) }
+        presentSheet(panel)
     }
 }
