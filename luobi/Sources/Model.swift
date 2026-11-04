@@ -72,6 +72,40 @@ struct Sheet: Codable {
     }
 }
 
+
+// MARK: - 书
+
+/// 一本书 = 一组文稿 + 一棵分组树 + 当前打开的那一篇。
+/// 书库页（Library）列出所有 Book；「随笔夹」也是一本 Book，只是 kind == "essays"，
+/// 它的作用是接住"随手想记两句但还没决定放哪本书"的内容。
+struct Book: Codable, Identifiable {
+    var id: String
+    var title: String
+    var kind: String = "book"        // "book" | "essays"
+    var createdAt: Double = 0
+    var updatedAt: Double = 0
+    var sheets: [Sheet] = []
+    var folders: [Folder] = []
+    var activeId: String = ""
+
+    var isEssays: Bool { kind == "essays" }
+
+    /// 只数正文：人物卡和设定不算"写了多少字"
+    var words: Int {
+        sheets.reduce(0) { sum, s in
+            guard s.card == nil else { return sum }
+            return sum + statCJK(s.content) + statLatin(s.content)
+        }
+    }
+    var chapterCount: Int { sheets.filter { $0.card == nil }.count }
+    var cardCount: Int { sheets.filter { $0.card != nil }.count }
+
+    static func new(id: String = UUID().uuidString, title: String, kind: String = "book") -> Book {
+        let now = Date().timeIntervalSince1970
+        return Book(id: id, title: title, kind: kind, createdAt: now, updatedAt: now)
+    }
+}
+
 struct DocState: Codable {
     var sheets: [Sheet]
     var activeId: String
@@ -96,13 +130,22 @@ struct DocState: Codable {
     var hourlyWords: [String: Int] = [:]  // "2026-11-03 21" -> 那个小时写了多少字
     var peakWPM: Int = 0                  // 观测到的最快写作速度（字/分钟）
 
+    // --- 书库：books 里放着每一本书的完整内容（含当前这本的副本）---
+    // 当前正在写的这一本，仍然以 sheets/folders/activeId 三个字段作为"工作副本"，
+    // 这样侧栏、大纲板、统计等上百处 doc.sheets 的代码不用改。
+    var books: [Book] = []
+    var activeBookId: String = ""
+    var libraryOpen: Bool = false         // true = 显示书库页，false = 在写作界面
+
     init(sheets: [Sheet], activeId: String) {
         self.sheets = sheets
         self.activeId = activeId
+        migrateToBooksIfNeeded()
     }
 
     enum CodingKeys: String, CodingKey {
         case sheets, activeId, typewriter, markdown, theme, goal, folders, sidebarVisible, fontSize, seenGuide, indentChars, lineSpacing, paragraphSpacing, dailyGoal, dailyBase, dailyDone, writeSeconds, pomodoroDone, focusMinutes, breakMinutes, hourlyWords, peakWPM
+        case books, activeBookId, libraryOpen
     }
 
     /// 只用于读老数据：0.8 之前的「是否缩进」开关
@@ -147,6 +190,113 @@ struct DocState: Codable {
         breakMinutes = try c.decodeIfPresent(Int.self, forKey: .breakMinutes) ?? 5
         hourlyWords = try c.decodeIfPresent([String: Int].self, forKey: .hourlyWords) ?? [:]
         peakWPM = try c.decodeIfPresent(Int.self, forKey: .peakWPM) ?? 0
+        books = try c.decodeIfPresent([Book].self, forKey: .books) ?? []
+        activeBookId = try c.decodeIfPresent(String.self, forKey: .activeBookId) ?? ""
+        libraryOpen = try c.decodeIfPresent(Bool.self, forKey: .libraryOpen) ?? false
+        migrateToBooksIfNeeded()
+    }
+
+    // MARK: - 书库
+
+    var currentBookIndex: Int? { books.firstIndex { $0.id == activeBookId } }
+    var currentBook: Book? { currentBookIndex.map { books[$0] } }
+    var bookTitle: String { currentBook?.title ?? "未命名" }
+    var essaysBook: Book? { books.first { $0.isEssays } }
+
+    /// 把工作副本写回 books 里当前这本（保存、切换、离开写作页时都要调）
+    mutating func syncCurrentBook() {
+        guard let i = currentBookIndex else { return }
+        books[i].sheets = sheets
+        books[i].folders = folders
+        books[i].activeId = activeId
+        books[i].updatedAt = Date().timeIntervalSince1970
+    }
+
+    /// 打开另一本书：先存当前，再把目标装载成工作副本
+    mutating func openBook(_ id: String) -> Bool {
+        if id == activeBookId { return true }
+        syncCurrentBook()
+        guard let i = books.firstIndex(where: { $0.id == id }) else { return false }
+        activeBookId = id
+        sheets = books[i].sheets
+        folders = books[i].folders
+        activeId = books[i].activeId
+        if !sheets.contains(where: { $0.id == activeId }) { activeId = sheets.first?.id ?? "" }
+        libraryOpen = false
+        return true
+    }
+
+    @discardableResult
+    mutating func createBook(_ title: String) -> String {
+        syncCurrentBook()
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let b = Book.new(title: t.isEmpty ? "未命名" : t)
+        books.append(b)
+        return b.id
+    }
+
+    /// 删书：至少留一本；删的是当前这本时自动切到第一本
+    @discardableResult
+    mutating func deleteBook(_ id: String) -> Bool {
+        guard books.count > 1, let i = books.firstIndex(where: { $0.id == id }) else { return false }
+        let wasActive = (id == activeBookId)
+        books.remove(at: i)
+        if wasActive, let next = books.first {
+            activeBookId = next.id
+            sheets = next.sheets
+            folders = next.folders
+            activeId = next.activeId
+            if !sheets.contains(where: { $0.id == activeId }) { activeId = sheets.first?.id ?? "" }
+        }
+        return true
+    }
+
+    mutating func renameBook(_ id: String, to title: String) {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, let i = books.firstIndex(where: { $0.id == id }) else { return }
+        books[i].title = t
+        books[i].updatedAt = Date().timeIntervalSince1970
+    }
+
+    /// 随笔夹：不管现在在哪本书，写一篇"还没归档"的速记
+    @discardableResult
+    mutating func quickNote() -> String {
+        syncCurrentBook()
+        if essaysBook == nil { books.append(Book.new(title: "随笔夹", kind: "essays")) }
+        guard let eid = essaysBook?.id else { return "" }
+        if activeBookId != eid { _ = openBook(eid) }
+        let sheet = Sheet(id: UUID().uuidString, title: "随手记 " + DocState.stamp(), content: "")
+        sheets.insert(sheet, at: 0)
+        activeId = sheet.id
+        syncCurrentBook()
+        libraryOpen = false
+        return sheet.id
+    }
+
+    static func stamp() -> String {
+        let f = DateFormatter()
+        f.dateFormat = "MM-dd HH:mm"
+        return f.string(from: Date())
+    }
+
+    /// 老数据（没有 books）→ 包成第一本书，并补一个随笔夹
+    mutating func migrateToBooksIfNeeded() {
+        if books.isEmpty {
+            let first = Book.new(title: "我的第一本书")
+            var b = first
+            b.sheets = sheets
+            b.folders = folders
+            b.activeId = activeId
+            books = [b]
+            activeBookId = b.id
+            libraryOpen = true      // 第一次见到书库：先让用户挑一本书
+        }
+        if !books.contains(where: { $0.isEssays }) {
+            books.append(Book.new(title: "随笔夹", kind: "essays"))
+        }
+        if activeBookId.isEmpty || !books.contains(where: { $0.id == activeBookId }) {
+            activeBookId = books[0].id
+        }
     }
 
     static func initial() -> DocState {
@@ -159,13 +309,14 @@ struct DocState: Codable {
 
 ## 三步开始
 
-1. 左下角「＋文」新建一篇；「▤ 分组」建一个文件夹，把文稿归进去。
-2. 直接把想法敲进来，不用管格式。
-3. 停笔 0.8 秒会自动保存。
+1. 一进来是**书库**：点一本书开始写；想随手记两句就点「随笔夹」里的「＋ 速记」。
+2. 左侧栏顶部「＋」下拉里可以新建文稿或新建分组；书名旁边「‹ 书库」随时回书库换书。
+3. 直接把想法敲进来，不用管格式；停笔 0.8 秒自动保存。
 
 ## 几个按钮
 
-- 顶部只有三个按钮：＋新建（文稿）、▤ 分组（文件夹）、收起侧栏；右边两个环是番茄钟和今日进度。其余动作（导入/导出/成书/历史/外观/指南/统计）在 **macOS 菜单栏图标**和应用菜单里。
+- 顶栏现在只有两个环：🍅 番茄钟、今 今日进度，鼠标停在番茄上会浮出今天的数据。新建/分组收在侧栏顶部，收起侧栏（«）也在侧栏右上角。
+- 一本书一套文稿：书与书之间完全独立，书库卡片上鼠标移上去能看到这周改了多少。
 - 侧栏里的文稿可以直接拖进文件夹；右键有重命名、删除。
 - 打字机：正在写的这一行始终停在屏幕中间，眼睛不用追。
 - 排版：# 开头是标题，**两边两个星号**是加粗，> 开头是引用。
@@ -211,6 +362,7 @@ struct DocState: Codable {
     func with(folders: [Folder]) -> DocState {
         var copy = self
         copy.folders = folders
+        copy.syncCurrentBook()
         return copy
     }
 

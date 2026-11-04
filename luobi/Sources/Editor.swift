@@ -52,6 +52,15 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var titleLeading: NSLayoutConstraint!
     var sidebarViews: [NSView] = []
 
+    // 书库入口：书库 ← → 写作 的切换由外层 Shell 负责，这里只放按钮和书名
+    var backButton = NSButton()
+    var bookLabel = NSTextField(labelWithString: "")
+    var plusMenu: NSPopUpButton?
+    var collapseButton = NSButton()
+    var expandButton = NSButton()
+    var libraryBackHandler: (() -> Void)?
+    var tomatoPopover: NSPopover?
+
     var saveTimer: Timer? = nil
     var styleTimer: Timer? = nil
     var updatingTable = false
@@ -90,6 +99,41 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         wantsLayer = true
 
         // --- 侧栏 ---
+        backButton.title = "‹ 书库"
+        backButton.isBordered = false
+        backButton.font = NSFont.systemFont(ofSize: 12)
+        backButton.contentTintColor = .secondaryLabelColor
+        backButton.alignment = .left
+        backButton.target = self
+        backButton.action = #selector(backToLibrary(_:))
+        backButton.toolTip = "回到书库，换一本书写"
+        backButton.translatesAutoresizingMaskIntoConstraints = false
+
+        bookLabel.stringValue = doc.currentBook?.title ?? "未命名"
+        bookLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        bookLabel.textColor = .secondaryLabelColor
+        bookLabel.lineBreakMode = .byTruncatingTail
+        bookLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        collapseButton.title = "«"
+        collapseButton.isBordered = false
+        collapseButton.font = NSFont.systemFont(ofSize: 13)
+        collapseButton.contentTintColor = .secondaryLabelColor
+        collapseButton.target = self
+        collapseButton.action = #selector(toggleSidebar(_:))
+        collapseButton.toolTip = "收起侧栏，专心写正文（再点左边缘的 » 展开）"
+        collapseButton.translatesAutoresizingMaskIntoConstraints = false
+
+        expandButton.title = "»"
+        expandButton.isBordered = false
+        expandButton.font = NSFont.systemFont(ofSize: 13)
+        expandButton.contentTintColor = .secondaryLabelColor
+        expandButton.target = self
+        expandButton.action = #selector(toggleSidebar(_:))
+        expandButton.toolTip = "展开左侧文稿树"
+        expandButton.isHidden = true
+        expandButton.translatesAutoresizingMaskIntoConstraints = false
+
         searchField.placeholderString = "搜索标题或正文"
         searchField.font = NSFont.systemFont(ofSize: 12)
         searchField.sendsSearchStringImmediately = true
@@ -97,22 +141,22 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         searchField.action = #selector(searchChanged(_:))
         searchField.translatesAutoresizingMaskIntoConstraints = false
 
-        plusButton.title = "+"
-        plusButton.bezelStyle = .regularSquare
-        plusButton.isBordered = true
-        plusButton.font = NSFont.systemFont(ofSize: 13, weight: .bold)
-        plusButton.target = self
-        plusButton.action = #selector(addSheet(_:))
-        plusButton.translatesAutoresizingMaskIntoConstraints = false
-
-        folderButton.title = "▤"
-        folderButton.bezelStyle = .regularSquare
-        folderButton.isBordered = true
-        folderButton.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        folderButton.toolTip = "新建分组（也可以右键侧栏）"
-        folderButton.target = self
-        folderButton.action = #selector(addFolder(_:))
-        folderButton.translatesAutoresizingMaskIntoConstraints = false
+        // 「新建文稿 / 新建分组」原来是两个按钮，占位置还重复；合并成一个下拉
+        let plus = NSPopUpButton(frame: .zero, pullsDown: true)
+        plus.bezelStyle = .regularSquare
+        plus.controlSize = .small
+        plus.font = NSFont.systemFont(ofSize: 13, weight: .bold)
+        plus.addItem(withTitle: "+")
+        func addPlus(_ t: String, _ sel: String) {
+            let it = NSMenuItem(title: t, action: Selector(sel), keyEquivalent: "")
+            it.target = self
+            plus.menu?.addItem(it)
+        }
+        addPlus("新建文稿", "addSheet:")
+        addPlus("新建分组", "addFolder:")
+        plus.toolTip = "新建文稿 / 新建分组"
+        plus.translatesAutoresizingMaskIntoConstraints = false
+        plusMenu = plus
 
         table = NSOutlineView()
         let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("t"))
@@ -215,9 +259,12 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         divider.boxType = .separator
         divider.translatesAutoresizingMaskIntoConstraints = false
 
+        addSubview(backButton)
+        addSubview(bookLabel)
+        addSubview(collapseButton)
+        addSubview(expandButton)
         addSubview(searchField)
-        addSubview(plusButton)
-        addSubview(folderButton)
+        addSubview(plus)
         addSubview(sidebarScroll)
         addSubview(sidebarFooter)
         addSubview(divider)
@@ -249,17 +296,28 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             divider.widthAnchor.constraint(equalToConstant: 1),
 
             // 顶部留出 40pt 给窗口交通灯（标题栏已隐藏，内容铺满整窗）
-            searchField.topAnchor.constraint(equalTo: topAnchor, constant: 40),
+            backButton.topAnchor.constraint(equalTo: topAnchor, constant: 38),
+            backButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            backButton.widthAnchor.constraint(equalToConstant: 62),
+            backButton.heightAnchor.constraint(equalToConstant: 20),
+            bookLabel.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
+            bookLabel.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: 4),
+            bookLabel.trailingAnchor.constraint(equalTo: collapseButton.leadingAnchor, constant: -6),
+            collapseButton.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
+            collapseButton.trailingAnchor.constraint(equalTo: sidebarScroll.trailingAnchor),
+            collapseButton.widthAnchor.constraint(equalToConstant: 22),
+            collapseButton.heightAnchor.constraint(equalToConstant: 20),
+            searchField.topAnchor.constraint(equalTo: backButton.bottomAnchor, constant: 8),
             searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            searchField.widthAnchor.constraint(equalToConstant: 148),
-            plusButton.topAnchor.constraint(equalTo: searchField.topAnchor),
-            plusButton.leadingAnchor.constraint(equalTo: searchField.trailingAnchor, constant: 4),
-            plusButton.widthAnchor.constraint(equalToConstant: 28),
-            plusButton.heightAnchor.constraint(equalTo: searchField.heightAnchor),
-            folderButton.topAnchor.constraint(equalTo: searchField.topAnchor),
-            folderButton.leadingAnchor.constraint(equalTo: plusButton.trailingAnchor, constant: 4),
-            folderButton.widthAnchor.constraint(equalToConstant: 28),
-            folderButton.heightAnchor.constraint(equalTo: searchField.heightAnchor),
+            searchField.trailingAnchor.constraint(equalTo: plus.leadingAnchor, constant: -4),
+            plus.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
+            plus.trailingAnchor.constraint(equalTo: leadingAnchor, constant: 228),
+            plus.widthAnchor.constraint(equalToConstant: 30),
+            plus.heightAnchor.constraint(equalTo: searchField.heightAnchor),
+            expandButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            expandButton.topAnchor.constraint(equalTo: topAnchor, constant: 40),
+            expandButton.widthAnchor.constraint(equalToConstant: 24),
+            expandButton.heightAnchor.constraint(equalToConstant: 22),
             sidebarScroll.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
             sidebarScroll.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             sidebarScroll.bottomAnchor.constraint(equalTo: sidebarFooter.topAnchor, constant: -6),
@@ -293,7 +351,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         sidebarWidth.isActive = true
         titleLeading = titleInput.leadingAnchor.constraint(equalTo: sidebarScroll.trailingAnchor, constant: 20)
         titleLeading.isActive = true
-        sidebarViews = [searchField, plusButton, folderButton, sidebarScroll, sidebarFooter, divider]
+        sidebarViews = [backButton, bookLabel, collapseButton, searchField, plus, sidebarScroll, sidebarFooter, divider]
         applySidebarVisibility(animated: false)
 
         applyMarkdownStyling()
@@ -314,11 +372,10 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let themeSel = responds(to: Selector(("showThemePanel:"))) ? "showThemePanel:" : "toggleTheme:"
         // 分组排布：文稿 → 文件 → 写作 → 外观/帮助，中间用细线隔开，
         // 每个按钮都带 tooltip，不需要背快捷键。
+        // 顶栏只留两个环：新建/分组/收起侧栏都已经挪进侧栏本身了。
+        // 剩下的"偶尔用一次"的动作在菜单栏图标和菜单里。
         let groups: [[(String, String, String)]] = [
-            [("＋新建", "addSheet:", "新建一篇文稿"),
-             ("▤分组", "addFolder:", "新建一个分组（文件夹），文稿可以拖进去")],
-            [("侧栏", "toggleSidebar:", "收起或展开左侧文稿树")],
-            [("__pomoRing__", "togglePomodoro:", "番茄钟：点一下开始 25 分钟专注，再点暂停"),
+            [("__pomoRing__", "togglePomodoro:", "番茄钟：点一下开始专注，再点暂停；鼠标停在这里看今天的数据"),
              ("__goalRing__", "showStatsPanel:", "今日写作进度：点开看最近 30 天的统计")],
         ]
         toolStack = NSStackView()
@@ -362,8 +419,12 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 if title == "__pomoRing__" {
                     let ring = RingButton(action: Selector(("togglePomodoro:")), tooltip: tip)
                     ring.target = self
-                    ring.glyph = "T"
+                    ring.glyph = "🍅"
+                    ring.glyphFont = 14
                     ring.ringColor = .systemRed
+                    ring.onHover = { [weak self] inside in
+                        if inside { self?.showTomatoStats() } else { self?.hideTomatoStats() }
+                    }
                     pomoButton = ring
                     toolStack.addArrangedSubview(ring)
                     continue
@@ -459,6 +520,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             doc.recordHourly(nowTotal - lastSavedTotal)
         }
         lastSavedTotal = nowTotal
+        doc.syncCurrentBook()
         let ok = Vault.save(doc)
         // 单篇历史：正文改过才留一份（内部会与最新一份比对，重复就跳过）
         if ok, let cur = doc.sheet(id: doc.activeId) {
@@ -477,7 +539,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let n = activeCount
         let total = doc.sheets.reduce(0) { $0 + statCJK($1.content) + statLatin($1.content) }
         let count = n == 0 ? "本篇空白" : "本篇 \(n) 字"
-        var s = "落笔 · \(doc.sheets.count) 篇 · " + count + " · 全书 \(total) 字"
+        var s = "落笔 · \(doc.currentBook?.title ?? "未命名") · \(doc.sheets.count) 篇 · " + count + " · 本书 \(total) 字"
         if doc.dailyGoal > 0 {
             s += " · 今日 \(doc.todayWritten)/\(doc.dailyGoal)"
         }
@@ -615,8 +677,9 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let show = doc.sidebarVisible
         for v in sidebarViews { v.isHidden = !show }
         sidebarWidth.constant = show ? 236 : 0
-        sidebarToggleButton?.title = show ? "收起侧栏" : "展开侧栏"
-        sidebarToggleButton?.toolTip = show ? "把左侧文稿树收起来，专心写正文" : "重新展开左侧文稿树"
+        expandButton.isHidden = show || focusMode || readingMode
+        // 收起后左边缘会多出 » 按钮，标题让开它
+        titleLeading.constant = show ? 20 : 44
         if animated, let w = window {
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = 0.16
@@ -632,6 +695,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// 整份文档换掉后刷新视图（导入/迁移/测试用）
     func adoptDoc(_ d: DocState) {
         doc = d
+        bookLabel.stringValue = doc.currentBook?.title ?? "未命名"
         titleInput.stringValue = doc.sheet(id: doc.activeId)?.title ?? ""
         textView.string = doc.sheet(id: doc.activeId)?.content ?? ""
         applySidebarVisibility(animated: false)
@@ -649,5 +713,65 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         textView.typingAttributes = bodyAttributes
         textView.defaultParagraphStyle = bodyParagraph
         applyMarkdownStyling()
+    }
+}
+
+extension EditorRoot {
+
+    @objc func backToLibrary(_ sender: Any?) {
+        flushSession()
+        persistNow()
+        libraryBackHandler?()
+    }
+
+    /// 鼠标停在番茄环上：今天写了多少、几个番茄、专注多久，一屏看完。
+    /// 用浮层而不是状态栏，是因为"想知道"的时机是鼠标停下来的那一瞬间。
+    func showTomatoStats() {
+        guard let btn = pomoButton else { return }
+        let pop = tomatoPopover ?? NSPopover()
+        pop.behavior = .semitransient
+        pop.animates = false
+        let minutes = doc.todaySeconds / 60
+        var lines = ["今天 \(doc.todayWritten) 字"]
+        if doc.dailyGoal > 0 { lines[0] += " / 目标 \(doc.dailyGoal)" }
+        lines.append("番茄 \(doc.todayPomodoros) 个 · 专注 \(minutes) 分钟")
+        if hasPomoSession {
+            if pomoIsBreak {
+                lines.append(pomoRunning ? "休息中 · 还剩 \(pomoRemainingText)" : "休息已暂停")
+            } else if pomoIsOvertime {
+                lines.append("已超时 +\(pomoOvertimeText)（还在写）")
+            } else if pomoRunning {
+                lines.append("专注中 · 还剩 \(pomoRemainingText)")
+            } else {
+                lines.append("专注已暂停 · 还剩 \(pomoRemainingText)")
+            }
+        } else {
+            lines.append("点一下开始 \(doc.focusMinutes) 分钟专注")
+        }
+        let label = NSTextField(labelWithString: lines.joined(separator: "\n"))
+        label.font = NSFont.systemFont(ofSize: 12)
+        label.textColor = .labelColor
+        label.maximumNumberOfLines = 0
+        label.preferredMaxLayoutWidth = 220
+        let box = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 0))
+        label.translatesAutoresizingMaskIntoConstraints = false
+        box.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 14),
+            label.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -14),
+            label.topAnchor.constraint(equalTo: box.topAnchor, constant: 10),
+            label.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -10),
+        ])
+        let vc = NSViewController()
+        vc.view = box
+        pop.contentViewController = vc
+        pop.contentSize = box.fittingSize
+        pop.show(relativeTo: btn.bounds, of: btn, preferredEdge: .minY)
+        tomatoPopover = pop
+    }
+
+    func hideTomatoStats() {
+        tomatoPopover?.close()
+        tomatoPopover = nil
     }
 }

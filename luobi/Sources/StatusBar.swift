@@ -101,7 +101,23 @@ final class RingButton: NSButton {
     var ringProgress: CGFloat = 0 { didSet { refreshImage() } }
     var ringColor: NSColor = .systemRed { didSet { refreshImage() } }
     var glyph: String? { didSet { refreshImage() } }
+    var glyphFont: CGFloat = 9 { didSet { refreshImage() } }
     var idleGlyphFallback: String?
+    var onHover: ((Bool) -> Void)?
+    private var hoverTracking: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let t = hoverTracking { removeTrackingArea(t) }
+        let t = NSTrackingArea(rect: bounds,
+                               options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                               owner: self, userInfo: nil)
+        addTrackingArea(t)
+        hoverTracking = t
+    }
+
+    override func mouseEntered(with event: NSEvent) { onHover?(true) }
+    override func mouseExited(with event: NSEvent) { onHover?(false) }
 
     init(action: Selector, tooltip: String) {
         super.init(frame: NSRect(x: 0, y: 0, width: 34, height: 28))
@@ -125,7 +141,7 @@ final class RingButton: NSButton {
         // 空闲时灰环 + 淡符号，运行中彩色环
         let color = ringProgress > 0.001 ? ringColor : NSColor.secondaryLabelColor
         image = NSImage.ring(progress: ringProgress, color: color, size: 26,
-                             glyph: glyph ?? idleGlyphFallback)
+                             glyph: glyph ?? idleGlyphFallback, glyphFont: glyphFont)
     }
 }
 

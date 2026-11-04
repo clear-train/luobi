@@ -19,27 +19,14 @@ win.isMovableByWindowBackground = true
 win.titlebarSeparatorStyle = .none
 win.backgroundColor = NSColor(srgbRed: 0.965, green: 0.949, blue: 0.906, alpha: 1)
 
-win.contentView = EditorRoot()
+// 外壳：书库和写作界面互换。首次启动进书库（挑一本书再开始），
+// 之后记住上次退在哪。
+let shell = Shell(frame: win.contentLayoutRect)
+win.contentView = shell
+shell.reload()
 win.center()
 win.setFrameAutosaveName("LuobiMain")
 win.makeKeyAndOrderFront(nil)
-
-// 写作计时：窗口在前台且有输入才开始累积
-if let root = win.contentView as? EditorRoot {
-    root.startSessionTracking()
-    root.installStatusItem()   // 菜单栏图标：番茄钟与今日进度常驻在这里
-}
-
-// 首次启动：自动弹一次使用指南（把 seenGuide 写回，之后不再打扰）
-if let root = win.contentView as? EditorRoot, !root.doc.seenGuide {
-    root.doc.seenGuide = true
-    root.persistNow()
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-        if root.responds(to: Selector(("showGuide:"))) {
-            root.perform(Selector(("showGuide:")), with: nil)
-        }
-    }
-}
 
 let main = NSMenu()
 for (name, items) in [
@@ -77,6 +64,7 @@ for (name, items) in [
         NSMenuItem(title: "设置本章目标…", action: Selector(("setChapterTarget:")), keyEquivalent: ""),
     ]),
     ("视图", [
+        NSMenuItem(title: "返回书库", action: Selector(("showLibraryAction:")), keyEquivalent: ""),
         NSMenuItem(title: "显示/收起侧栏", action: Selector(("toggleSidebar:")), keyEquivalent: ""),
         NSMenuItem(title: "新建分组", action: Selector(("addFolder:")), keyEquivalent: ""),
         { let s = NSMenuItem.separator(); return s }(),
