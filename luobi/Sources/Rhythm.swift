@@ -71,67 +71,9 @@ final class RhythmChartView: NSView {
 
 extension EditorRoot {
 
+    /// 已并入「写作统计」：产量和节奏是同一个问题的两面，分两处看反而累
     @objc func showRhythmPanel(_ sender: Any?) {
-        let stats = doc.rhythm()
-        let preset = ThemePresets.preset(doc.theme)
-
-        let panel = LuobiSheetPanel(contentRect: NSRect(x: 0, y: 0, width: 700, height: 430),
-                            styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        panel.title = "写作节奏"
-        if preset.isDark { panel.appearance = NSAppearance(named: .darkAqua) }
-        panel.isReleasedWhenClosed = false
-
-        let content = NSView(frame: panel.contentView?.bounds ?? .zero)
-        content.wantsLayer = true
-        content.layer?.backgroundColor = preset.bg.cgColor
-        panel.contentView = content
-
-        func label(_ text: String, size: CGFloat, weight: NSFont.Weight, color: NSColor, y: CGFloat, h: CGFloat = 18) {
-            let t = NSTextField(labelWithString: text)
-            t.font = NSFont.systemFont(ofSize: size, weight: weight)
-            t.textColor = color
-            t.frame = NSRect(x: 24, y: y, width: 652, height: h)
-            t.isBordered = false
-            t.drawsBackground = false
-            content.addSubview(t)
-        }
-
-        let dim = preset.text.withAlphaComponent(0.62)
-        label("最近 \(max(1, stats.observedDays)) 天 · 按小时看产量", size: 15, weight: .semibold, color: preset.text, y: 388, h: 22)
-
-        if stats.observedDays == 0 || stats.totals.max() == 0 {
-            label("还没有按小时的记录：今天写一会儿，明天这里就有柱子了。", size: 12, weight: .regular, color: dim, y: 350)
-        } else {
-            let peakText = "最出活：\(stats.peakHour) 点，平均每小时 \(stats.peakAvg) 字"
-            let lowText = "最没效率：\(stats.lowHour) 点，平均 \(stats.lowAvg) 字"
-            label(peakText, size: 12.5, weight: .medium, color: preset.text, y: 366)
-            label(lowText, size: 12.5, weight: .regular, color: dim, y: 346)
-
-            var insight = ""
-            if let hook = stats.inflectionHour {
-                let keep = stats.peakAvg > 0 ? Int(Double(stats.averages[hook]) / Double(stats.peakAvg) * 100) : 0
-                insight = "拐点：\(hook) 点只剩峰值的 \(keep)% —— 这个点之后基本写不动了，适合收尾。"
-            } else {
-                insight = "拐点：样本还不够，多写几天就能看出你什么时候掉速。"
-            }
-            label(insight, size: 12, weight: .regular, color: accentColorFor(preset), y: 326)
-
-            if stats.peakWPM > 0 {
-                label("最快手速：\(stats.peakWPM) 字/分钟（连续 20 秒采样的峰值）", size: 12, weight: .regular, color: dim, y: 306)
-            }
-
-            let chart = RhythmChartView(frame: NSRect(x: 24, y: 52, width: 652, height: 240))
-            chart.stats = stats
-            content.addSubview(chart)
-        }
-
-        let close = NSButton(title: "关闭", target: self, action: Selector(("dismissSheetPanel:")))
-        close.bezelStyle = .texturedRounded
-        close.keyEquivalent = "\r"
-        close.frame = NSRect(x: 612, y: 12, width: 64, height: 26)
-        content.addSubview(close)
-
-        presentSheet(panel)
+        showStatsPanel(sender)
     }
 
     private func accentColorFor(_ preset: ThemePreset) -> NSColor {

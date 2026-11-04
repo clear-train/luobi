@@ -21,6 +21,8 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var pomoSpent: TimeInterval = 0      // 暂停前累计的秒数
     var pomoNotified = false             // "时间到"只提醒一次
     var goalRing: RingButton?
+    /// 外观面板是浮动窗口（不是 sheet）：改配色时你还想点别的、还想看正文
+    weak var themePanel: ThemePanelWindow?
     var statusItem: NSStatusItem?
     var statusMenuState: String = ""
     var statusPomoItem: NSMenuItem?
@@ -410,7 +412,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let groups: [[(String, String, String)]] = [
             [("专注", "toggleFocus:", "藏起所有控件只留正文（Esc 退出）"),
              ("__pomoRing__", "togglePomodoro:", "番茄钟：点一下开始专注，再点暂停；鼠标停在这里看今天的数据"),
-             ("__goalRing__", "showStatsPanel:", "今日写作进度：点开看最近 30 天的统计")],
+             ("__goalRing__", "showTodayPanel:", "今天的进度：点开看今天这一天")],
         ]
         toolStack = NSStackView()
         toolStack.orientation = .horizontal

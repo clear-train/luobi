@@ -62,6 +62,10 @@ final class ThemePanelWindow: NSPanel {
             return
         }
         close()
+        // 浮动面板关掉后把焦点还给正文，免得下一次打字丢第一个键
+        DispatchQueue.main.async { [weak self] in
+            self?.hostWindow?.makeKey()
+        }
     }
 
     /// Esc 等同「完成」
@@ -410,18 +414,24 @@ extension EditorRoot {
     /// 顶部工具栏 / 菜单「主题」入口：打开「外观」面板
     @objc func showThemePanel(_ sender: Any?) {
         // 已经开着就不再叠一层
-        if let host = window, let sheet = host.attachedSheet as? ThemePanelWindow {
-            sheet.makeKeyAndOrderFront(nil)
+        if let existing = themePanel {
+            existing.makeKeyAndOrderFront(nil)
             return
         }
 
         let panel = ThemePanelWindow(editor: self)
         panel.hostWindow = window
+        themePanel = panel
 
         if let host = window {
-            host.beginSheet(panel, completionHandler: nil)
+            // 做成浮动面板而不是 sheet：sheet 会把主窗口整个挡住，
+            // 用户「打开外观 → 再点别的」就永远点不动，只能先把面板关掉。
+            panel.level = .floating
+            let f = host.frame
+            panel.setFrameOrigin(NSPoint(x: f.midX - panel.frame.width / 2,
+                                         y: f.midY - panel.frame.height / 2))
+            panel.makeKeyAndOrderFront(nil)
         } else {
-            // 没有主窗口时兜底成模态面板（NSPanel 自身没有 runModal，走 NSApp）
             _ = NSApp.runModal(for: panel)
         }
     }

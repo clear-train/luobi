@@ -108,72 +108,101 @@ extension EditorRoot {
         guard let target = win else { return }
         if let parent = target.sheetParent {
             parent.endSheet(target)
+            // 关掉 sheet 后把主窗口和光标一起还回去，否则"第一下点击"会被吃掉
+            DispatchQueue.main.async {
+                parent.makeKey()
+                if let editor = parent.contentView as? EditorRoot {
+                    parent.makeFirstResponder(editor.textView)
+                }
+            }
         } else {
             target.close()
         }
     }
 
+    /// 写作统计 = 30 天产量 + 一天里的节奏，合成一页
+    /// （分成两个面板时，你得来回切着看——而这两件事本来就是同一个问题的两面）
     @objc func showStatsPanel(_ sender: Any?) {
         let stats = doc.writeStats(days: 30)
-        let goal = doc.dailyGoal
-
-        let panel = LuobiSheetPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 380),
-            styleMask: [.titled, .closable],
-            backing: .buffered, defer: false)
-        panel.title = "写作统计"
-        if ThemePresets.preset(doc.theme).isDark { panel.appearance = NSAppearance(named: .darkAqua) }
-        panel.isReleasedWhenClosed = false
-
-        let content = NSView(frame: panel.contentView?.bounds ?? .zero)
-        content.wantsLayer = true
+        let rhythm = doc.rhythm()
         let preset = ThemePresets.preset(doc.theme)
-        content.layer?.backgroundColor = preset.bg.cgColor
-        panel.contentView = content
+        let dim = preset.text.withAlphaComponent(0.62)
+        let panel = LuobiSheetPanel(contentRect: NSRect(x: 0, y: 0, width: 720, height: 564),
+                                    styleMask: [.titled, .closable],
+                                    backing: .buffered, defer: false)
+        panel.title = "写作统计"
+        panel.isReleasedWhenClosed = false
+        if preset.isDark { panel.appearance = NSAppearance(named: .darkAqua) }
 
-        func label(_ text: String, _ size: CGFloat, _ weight: NSFont.Weight, _ color: NSColor, y: CGFloat, h: CGFloat = 20) -> NSTextField {
-            let t = NSTextField(labelWithString: text)
+        let body = NSView(frame: NSRect(x: 0, y: 0, width: 720, height: 520))
+        body.wantsLayer = true
+        body.layer?.backgroundColor = preset.bg.cgColor
+
+        func text(_ str: String, size: CGFloat, weight: NSFont.Weight, color: NSColor,
+                  y: CGFloat, h: CGFloat = 18, x: CGFloat = 28) -> NSTextField {
+            let t = NSTextField(labelWithString: str)
             t.font = NSFont.systemFont(ofSize: size, weight: weight)
             t.textColor = color
-            t.frame = NSRect(x: 24, y: y, width: 592, height: h)
-            t.isBordered = false
-            t.drawsBackground = false
-            content.addSubview(t)
+            t.maximumNumberOfLines = 0
+            t.frame = NSRect(x: x, y: y, width: 720 - x - 28, height: h)
+            body.addSubview(t)
             return t
         }
 
-        _ = label("最近 30 天", 15, .semibold, preset.text, y: 332, h: 22)
-        _ = label("累计写作 \(stats.activeDays) 天 · 最长连续 \(stats.longestStreak) 天 · 本月 \(stats.monthWords) 字 · 总计 \(stats.totalWords) 字",
-                  12, .regular, preset.text.withAlphaComponent(0.62), y: 310, h: 18)
+        text("最近 30 天", size: 22, weight: .bold, color: preset.text, y: 470, h: 28)
+        text("累计写作 \(stats.activeDays) 天 · 最长连续 \(stats.longestStreak) 天 · 本月 \(stats.monthWords) 字 · 总计 \(stats.totalWords) 字",
+             size: 12, weight: .regular, color: dim, y: 446, h: 16)
 
-        // 时间维度：字数是结果，时长才是习惯
         func minutes(_ sec: Int) -> String { sec < 60 ? "不到 1 分钟" : "\(sec / 60) 分钟" }
-        _ = label("今天写了 \(minutes(doc.todaySeconds)) · 近 7 天平均 \(minutes(doc.averageWriteSeconds(days: 7)))（只统计真正在打字的时间）" + (doc.todayPomodoros > 0 ? " · 今天完成 \(doc.todayPomodoros) 个番茄" : ""),
-                  12, .regular, preset.text.withAlphaComponent(0.62), y: 292, h: 16)
+        text("今天写了 \(minutes(doc.todaySeconds)) · 近 7 天平均 \(minutes(doc.averageWriteSeconds(days: 7)))（只算真正打字的时间）"
+             + (doc.todayPomodoros > 0 ? " · 今天 \(doc.todayPomodoros) 个番茄" : ""),
+             size: 12, weight: .regular, color: dim, y: 426, h: 16)
 
-        let chart = StatsChartView(frame: NSRect(x: 20, y: 58, width: 600, height: 240))
+        let chart = StatsChartView(frame: NSRect(x: 24, y: 214, width: 672, height: 196))
         chart.stats = stats
-        chart.goal = goal
-        content.addSubview(chart)
+        chart.goal = doc.dailyGoal
+        body.addSubview(chart)
 
+        if doc.dailyGoal > 0 {
+            text("橙色虚线 = 每日目标 \(doc.dailyGoal) 字", size: 10.5, weight: .regular,
+                 color: NSColor.systemOrange.withAlphaComponent(0.9), y: 196, h: 14)
+        }
         if stats.maxCount == 0 {
-            _ = label("还没有写作记录：今天写几句，明天这里就有第一根柱子。", 12, .regular,
-                      preset.text.withAlphaComponent(0.55), y: 300, h: 18)
-        }
-        if goal > 0 {
-            _ = label("橙色虚线 = 每日目标 \(goal) 字", 10.5, .regular,
-                      NSColor.systemOrange.withAlphaComponent(0.9), y: 40, h: 14)
+            text("还没有写作记录：今天写几句，明天这里就有第一根柱子。", size: 12, weight: .regular,
+                 color: preset.text.withAlphaComponent(0.55), y: 330, h: 16)
         }
 
-        // 注意：target 必须是"要关闭的那个窗口"，不是按钮自己。
-        // 写成 target = close 时 AppKit 会静默吞掉 action（按钮不响应 performClose），
-        // 表现就是「点了没反应，面板卡在那儿关不掉」。
-        let close = NSButton(title: "关闭", target: self, action: Selector(("dismissSheetPanel:")))
-        close.bezelStyle = .texturedRounded
-        close.keyEquivalent = "\r"
-        close.frame = NSRect(x: 552, y: 10, width: 64, height: 26)
-        content.addSubview(close)
+        let divider = NSBox(frame: NSRect(x: 28, y: 186, width: 664, height: 1))
+        divider.boxType = .separator
+        body.addSubview(divider)
 
+        text("一天里的节奏 · 最近 \(max(1, rhythm.observedDays)) 天按小时平均", size: 14, weight: .semibold,
+             color: preset.text, y: 160, h: 20)
+
+        if rhythm.observedDays == 0 || rhythm.totals.max() == 0 {
+            text("还没有按小时的记录：今天写一会儿，明天这里就有柱子了。", size: 12, weight: .regular, color: dim, y: 138, h: 16)
+        } else {
+            text("最出活：\(rhythm.peakHour) 点，平均每小时 \(rhythm.peakAvg) 字 · 最没效率：\(rhythm.lowHour) 点，平均 \(rhythm.lowAvg) 字",
+                 size: 12.5, weight: .medium, color: preset.text, y: 138, h: 16)
+            var insight = ""
+            if let hook = rhythm.inflectionHour {
+                let keep = rhythm.peakAvg > 0 ? Int(Double(rhythm.averages[hook]) / Double(rhythm.peakAvg) * 100) : 0
+                insight = "拐点：\(hook) 点只剩峰值的 \(keep)% —— 这之后基本写不动了，适合收尾。"
+            } else {
+                insight = "拐点：样本还不够，多写几天就能看出你什么时候掉速。"
+            }
+            text(insight, size: 12, weight: .regular, color: NSColor.systemOrange, y: 120, h: 16)
+            if rhythm.peakWPM > 0 {
+                text("最快手速：\(rhythm.peakWPM) 字/分钟（连续 20 秒采样的峰值）", size: 11.5, weight: .regular, color: dim, y: 102, h: 16)
+            }
+            let rhythmChart = RhythmChartView(frame: NSRect(x: 24, y: 18, width: 672, height: 78))
+            rhythmChart.stats = rhythm
+            body.addSubview(rhythmChart)
+        }
+
+        body.translatesAutoresizingMaskIntoConstraints = false
+        panel.contentView = wrapWithFooter(body, footerTitle: "完成")
+        panel.onEsc = { [weak panel] in panel?.closeSelf() }
         presentSheet(panel)
     }
 }
