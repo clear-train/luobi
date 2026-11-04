@@ -1,13 +1,15 @@
-# Ulysses Native
+# 落笔
+
+> 落笔，就是手落在纸上的那一瞬——写作里最难的那一步。这个工具的存在只为这一件事：让你更快开始写，而不是花时间管理文稿。
 
 一个本地、安静、只属于你自己的写作工具：分组和文稿都保存在你电脑上的一个 JSON 文件里，不联网、不弹窗、不催你。原生 AppKit 写的单窗口应用，用 Markdown 边写边排版。
 
 ## 第一次打开
 
-双击 `build/UlyssesNative.app`，或在本目录的终端里执行：
+双击 `build/Luobi.app`，或在本目录的终端里执行：
 
 ```bash
-open build/UlyssesNative.app
+open build/Luobi.app
 ```
 
 第一次启动会自动建一篇「第一章」。你会看到三块东西：
@@ -78,7 +80,7 @@ open build/UlyssesNative.app
 
 顺序规则：同一层先走分组、再放没归组的零散文稿；分组的名字变成一个标题。所以**侧栏里怎么排，成书就怎么排**。
 
-文件落在 `~/Documents/UlyssesNative/`，导出完会自动在访达里选中它。
+文件落在 `~/Documents/Luobi/`，导出完会自动在访达里选中它。
 
 ## 调整顺序
 
@@ -229,7 +231,7 @@ open build/UlyssesNative.app
 - 每 20 秒一拍，攒够 60 秒才写盘一次，不折腾磁盘
 - 一天最多算 12 小时（防挂机过夜）
 
-注意：从终端 `./build/UlyssesNative.app/...` 启动的实例和从访达启动的实例**写的是同一个文稿库**，但计时数据只按天累加，不会重复。
+注意：从终端 `./build/Luobi.app/...` 启动的实例和从访达启动的实例**写的是同一个文稿库**，但计时数据只按天累加，不会重复。
 
 ## 写作统计
 
@@ -263,7 +265,7 @@ open build/UlyssesNative.app
 
 和「文件 → 从备份恢复」的区别：那个是**整本**的快照（每 5 分钟一份，最多 20 份），救的是"整个文稿库出问题"；这里是**单篇**的版本链，救的是"这一章改坏了"。
 
-历史文件放在 `~/Library/Application Support/UlyssesNative/History/<文稿 id>/`，是普通 `.md`，访达里能直接看，也能拿 `diff` 比。
+历史文件放在 `~/Library/Application Support/Luobi/History/<文稿 id>/`，是普通 `.md`，访达里能直接看，也能拿 `diff` 比。
 
 ## 查找与替换
 
@@ -329,10 +331,10 @@ open build/UlyssesNative.app
 
 | 内容 | 路径 |
 | --- | --- |
-| 全部文稿与设置 | `~/Library/Application Support/UlyssesNative/state.json` |
-| 上一版（自动） | `~/Library/Application Support/UlyssesNative/state.json.bak` |
-| 定时快照（自动，留最近 20 份） | `~/Library/Application Support/UlyssesNative/Backups/` |
-| 导出的 Markdown | `~/Documents/UlyssesNative/` |
+| 全部文稿与设置 | `~/Library/Application Support/Luobi/state.json` |
+| 上一版（自动） | `~/Library/Application Support/Luobi/state.json.bak` |
+| 定时快照（自动，留最近 20 份） | `~/Library/Application Support/Luobi/Backups/` |
+| 导出的 Markdown | `~/Documents/Luobi/` |
 
 App 内置了三层保险，日常不需要你操心：
 
@@ -366,6 +368,13 @@ App 内置了三层保险，日常不需要你操心：
 
 ## 更新日志
 
+### 0.9.0
+- **改名：Ulysses Native → 落笔。** 「落笔」指的是手落在纸上的那一瞬，也就是写作里最难的那一步；工具只该帮你更快开始。
+- 应用名、bundle id、安装包名、仓库名全部统一为落笔（`Luobi` / `luobi`）。
+- **旧文稿自动迁移**：首次启动会把 `~/Library/Application Support/UlyssesNative/` 整份拷到 `.../Luobi/`，旧目录原样保留当保险；迁移成功会在状态栏说一句。
+- 导出的成书/单篇改落 `~/Documents/Luobi/`。
+- 测试脚本的环境变量改为 `LUOBI_HOME`（旧的 `ULYSSES_HOME` 仍然认）。
+
 ### 0.8.0
 - **番茄钟重写**：暂停就是暂停——冻结已用时间，再点一下「继续」从冻结点往下走（早先版本暂停后就点不动了，已修）。
 - **到点是提醒，不是结束**：时间到只响一声、弹一张 16 秒自动消失、不抢焦点的卡片，同时环变橙、改成**正计时**（`+05:20`），你可以接着写到自然收尾。
@@ -376,7 +385,7 @@ App 内置了三层保险，日常不需要你操心：
 - **顶栏收敛**：只留 `＋新建` `▤分组` `收起侧栏` + 两个环，其余进菜单；按钮改自绘胶囊，文字垂直居中。
 - **排版修正**：行距 7 / 段距 0（旧默认 13/12 会让「空行分段 + 段距」叠成三倍行距），首行缩进、行距、段距都能在外观面板里调。
 - **修崩溃**：拖动文稿直接松手在分组上会数组越界崩溃（`childIndex == -1`），已修。
-- 统一命名：产品只叫 **Ulysses Native**；旧 HTML 原型与套壳尝试归档到 `legacy/`。
+- 统一命名：产品只叫 **落笔**；旧 HTML 原型与套壳尝试归档到 `legacy/`。
 
 ### 0.7.0
 - **写作计时**：统计面板显示「今天写了 47 分钟 · 近 7 天平均 16 分钟」。只算窗口在前台、且最近 2 分钟真有输入的时间；一天封顶 12 小时防挂机。
@@ -432,15 +441,15 @@ App 内置了三层保险，日常不需要你操心：
 
 | 文件 | 用途 |
 | --- | --- |
-| `UlyssesNative-<版本>-macOS.zip` | 解压后把 App 拖进「应用程序」即可，发给别人也用这个 |
-| `UlyssesNative-<版本>.dmg` | 双击挂载、拖进 Applications（部分受限环境做不了 dmg，会自动跳过） |
+| `Luobi-<版本>-macOS.zip` | 解压后把 App 拖进「应用程序」即可，发给别人也用这个 |
+| `Luobi-<版本>.dmg` | 双击挂载、拖进 Applications（部分受限环境做不了 dmg，会自动跳过） |
 
 版本号只有一个真相：`Info.plist` 里的 `CFBundleShortVersionString` / `CFBundleVersion`，发版前改这里。
 
 安装到别人机器上时：
-1. 解压 zip，把 `UlyssesNative.app` 拖进「应用程序」；
+1. 解压 zip，把 `Luobi.app` 拖进「应用程序」；
 2. 第一次打开要**右键 → 打开**（没做 Apple 公证，双击会被 Gatekeeper 拦一次）；
-   或在终端执行 `xattr -dr com.apple.quarantine "/Applications/UlyssesNative.app"`；
-3. 文稿库仍在 `~/Library/Application Support/UlyssesNative/state.json`，换机拷这个文件就行。
+   或在终端执行 `xattr -dr com.apple.quarantine "/Applications/Luobi.app"`；
+3. 文稿库仍在 `~/Library/Application Support/Luobi/state.json`，换机拷这个文件就行。
 
 > 从终端或别的受限环境里启动 App 时，系统可能禁止它写 Application Support，状态栏会提示「保存失败」。正常从访达双击启动没有这个问题。

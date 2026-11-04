@@ -9,7 +9,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var textView = CardTextView()
     var barLabel = NSTextField()
     /// 启动时若自动从备份恢复过，或者刚手动备份过，在这条状态栏里说一句
-    var startupNote: String? = Vault.lastRecoveryNote
+    var startupNote: String? = Vault.lastRecoveryNote ?? Vault.migrationNote
     var focusMode = false
 
     // 番茄钟（实现见 Pomodoro.swift）
@@ -477,7 +477,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let n = activeCount
         let total = doc.sheets.reduce(0) { $0 + statCJK($1.content) + statLatin($1.content) }
         let count = n == 0 ? "本篇空白" : "本篇 \(n) 字"
-        var s = "Ulysses Native · \(doc.sheets.count) 篇 · " + count + " · 全书 \(total) 字"
+        var s = "落笔 · \(doc.sheets.count) 篇 · " + count + " · 全书 \(total) 字"
         if doc.dailyGoal > 0 {
             s += " · 今日 \(doc.todayWritten)/\(doc.dailyGoal)"
         }

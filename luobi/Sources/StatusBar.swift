@@ -136,7 +136,7 @@ extension EditorRoot {
     func installStatusItem() {
         guard statusItem == nil else { return }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.toolTip = "Ulysses Native · 番茄钟与今日进度"
+        item.button?.toolTip = "落笔 · 番茄钟与今日进度"
         statusItem = item
         rebuildStatusMenu()
         refreshStatusItem()
@@ -258,7 +258,7 @@ extension EditorRoot {
         add("外观与字号…", "showThemePanel:")
         add("功能说明与使用指南…", "showGuide:")
         menu.addItem(.separator())
-        add("退出 Ulysses Native", "terminate:")
+        add("退出 落笔", "terminate:")
         item.menu = menu
     }
 

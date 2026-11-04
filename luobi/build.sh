@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APP=build/UlyssesNative.app
+APP=build/Luobi.app
 SDKROOT_DIR=/Library/Developer/CommandLineTools/SDKs
 MODULECACHE="$PWD/.modulecache"
 mkdir -p "$MODULECACHE"
@@ -33,7 +33,7 @@ cp Info.plist "$APP/Contents/Info.plist"
 [ -f icons/AppIcon.icns ] && cp icons/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns" || echo "（暂无图标，跳过）"
 
 SDKROOT="$SDKROOT_DIR/$CHOSEN" "$SWIFTC" -O -module-cache-path "$MODULECACHE" \
-    -o "$APP/Contents/MacOS/ulysses-native" Sources/*.swift -framework AppKit
+    -o "$APP/Contents/MacOS/luobi" Sources/*.swift -framework AppKit
 
 codesign --force --sign - "$APP" 2>/dev/null || true
 echo "构建完成: $PWD/$APP"

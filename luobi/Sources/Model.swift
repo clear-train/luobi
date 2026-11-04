@@ -153,7 +153,7 @@ struct DocState: Codable {
         let folder = Folder(id: UUID().uuidString, name: "小说")
         let s = Sheet(id: UUID().uuidString, title: "第一章", content: "开始写。", folderId: folder.id)
         let guide = Sheet(id: UUID().uuidString, title: "使用指南", content: """
-# 欢迎使用 Ulysses Native
+# 欢迎使用落笔
 
 这是一个把「写字」放在第一位的本地写作软件。下面是最短的上手路径。
 
@@ -192,7 +192,7 @@ struct DocState: Codable {
 
 ## 你的字存在哪儿
 
-~/Library/Application Support/UlyssesNative/state.json
+~/Library/Application Support/Luobi/state.json
 
 同一个文件夹里还有两份保险：
 - state.json.bak：上一版（每次保存前自动留）
@@ -523,13 +523,39 @@ struct LegacyDoc: Codable {
 // MARK: - 文稿库（唯一允许碰磁盘的模块）
 
 enum Vault {
+    static var supportBase: URL {
+        // 测试用：把「Application Support 根」也换成临时目录，才能在不碰真实数据的前提下验迁移
+        if let s = ProcessInfo.processInfo.environment["LUOBI_SUPPORT"], !s.isEmpty {
+            return URL(fileURLWithPath: s, isDirectory: true)
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    }
+
     static var dir: URL {
         // 测试/探针可以用环境变量把整个文稿库指到临时目录，避免碰真实数据
-        if let custom = ProcessInfo.processInfo.environment["ULYSSES_HOME"], !custom.isEmpty {
+        let env = ProcessInfo.processInfo.environment
+        if let custom = env["LUOBI_HOME"] ?? env["ULYSSES_HOME"], !custom.isEmpty {
             return URL(fileURLWithPath: custom, isDirectory: true)
         }
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("UlyssesNative", isDirectory: true)
+        return supportBase.appendingPathComponent("Luobi", isDirectory: true)
+    }
+
+    /// 改名前的文稿库（Ulysses Native）。首次启动会自动搬过来，旧目录原样留着当保险。
+    static var legacyDir: URL { supportBase.appendingPathComponent("UlyssesNative", isDirectory: true) }
+
+    /// 这次启动是否发生了「旧名字 → 落笔」的搬迁，界面据此提示一句
+    static var migrationNote: String? = nil
+
+    private static func migrateIfNeeded() {
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: dir.path),
+              fm.fileExists(atPath: legacyDir.path) else { return }
+        do {
+            try fm.copyItem(at: legacyDir, to: dir)
+            migrationNote = "已把旧文稿库搬进「落笔」，原来的 UlyssesNative 目录也没删"
+        } catch {
+            migrationNote = "旧文稿库搬迁失败，可以手动拷 ~/Library/Application Support/UlyssesNative 到 Luobi"
+        }
     }
     static var file: URL { dir.appendingPathComponent("state.json") }
     /// 上一次成功保存前的旧文件，主文件坏掉时用
@@ -546,6 +572,7 @@ enum Vault {
     static var lastRecoveryNote: String? = nil
 
     static func ensure() {
+        migrateIfNeeded()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: backupsDir, withIntermediateDirectories: true)
     }

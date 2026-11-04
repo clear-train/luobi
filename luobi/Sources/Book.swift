@@ -176,7 +176,7 @@ extension DocState {
         var lines: [String] = []
         lines.append("# " + title)
         let words = chapters.reduce(0) { $0 + ($1.isGroup ? 0 : statCJK($1.content) + statLatin($1.content)) }
-        lines.append("> 共 \(chapters.filter { !$0.isGroup }.count) 篇，约 \(words) 字。用 Ulysses Native 导出。")
+        lines.append("> 共 \(chapters.filter { !$0.isGroup }.count) 篇，约 \(words) 字。用落笔导出。")
         for c in chapters {
             if c.isGroup {
                 lines.append(String(repeating: "#", count: c.level) + " " + c.title)
@@ -381,7 +381,7 @@ extension EditorRoot {
     /// 成书文件与单篇导出放同一个目录，找的时候只需要记一个地方
     private var bookExportDir: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("UlyssesNative", isDirectory: true)
+            .appendingPathComponent("Luobi", isDirectory: true)
     }
 
     private func bookSafeName(_ title: String) -> String {

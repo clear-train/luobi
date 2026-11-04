@@ -10,7 +10,7 @@ extension EditorRoot {
 
     private var exportDir: URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return docs.appendingPathComponent("UlyssesNative", isDirectory: true)
+        return docs.appendingPathComponent("Luobi", isDirectory: true)
     }
 
     private var exportDirTilde: String {

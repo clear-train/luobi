@@ -121,7 +121,7 @@ private func guideText(preset: ThemePreset) -> NSAttributedString {
     }
 
     // 抬头
-    add("Ulysses Native 使用指南", font: guideTitleFont, after: 2)
+    add("落笔 · 使用指南", font: guideTitleFont, after: 2)
     add("一个本地、安静、只为你自己的写作工具。随时可以从「帮助 → 功能说明与使用指南」再打开这里。",
         font: guideNoteFont, color: note, after: 2)
 
@@ -179,9 +179,9 @@ private func guideText(preset: ThemePreset) -> NSAttributedString {
     // 6 数据在哪
     section("数据在哪")
     bullet("整个文稿库——分组、文稿、偏好——只有一个 JSON 文件：")
-    path("~/Library/Application Support/UlyssesNative/state.json")
+    path("~/Library/Application Support/Luobi/state.json")
     bullet("导出的 Markdown 默认落在：")
-    path("~/Documents/UlyssesNative/")
+    path("~/Documents/Luobi/")
     bullet("同一目录下还有两个文件夹：Backups/（整库快照，每 5 分钟一份，最多 20 份）和 History/<文稿 id>/（单篇历史，普通 .md 文件）。")
     bullet("复制这个 JSON 就是完整备份；换电脑时放回同一路径，打开就是原来的文库。")
     bullet("建议定期备份，比如每周拷一次，文件名带上日期。")
