@@ -38,6 +38,11 @@ extension EditorRoot {
 
     // MARK: 操作
 
+    /// 设置里关掉番茄钟后，顶栏的 🍅 环应该整个消失（不只是变灰）
+    func applyPomodoroVisibility() {
+        pomoButton?.isHidden = !doc.pomodoroEnabled
+    }
+
     @objc func togglePomodoro(_ sender: Any?) {
         if pomoRunning {
             pausePomodoro()

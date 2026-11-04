@@ -58,12 +58,11 @@ extension DocState {
 
 extension EditorRoot {
 
-    var shadowModeEnabled: Bool {
-        UserDefaults.standard.object(forKey: "shadowMode") as? Bool ?? true
-    }
+    var shadowModeEnabled: Bool { doc.shadowMode }
 
     @objc func toggleShadowMode(_ sender: Any?) {
-        UserDefaults.standard.set(!shadowModeEnabled, forKey: "shadowMode")
+        doc.shadowMode = !shadowModeEnabled
+        persistNow()
         startupNote = shadowModeEnabled ? "影子模式已打开：和过去的自己比" : "影子模式已关闭"
         refreshBar()
         rebuildStatusMenu()

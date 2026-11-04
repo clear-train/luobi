@@ -130,6 +130,12 @@ struct DocState: Codable {
     var hourlyWords: [String: Int] = [:]  // "2026-11-03 21" -> 那个小时写了多少字
     var peakWPM: Int = 0                  // 观测到的最快写作速度（字/分钟）
 
+    // --- 显示开关：这些是"看得见多少"的偏好，全部可在「设置」里关掉 ---
+    var shadowMode: Bool = true           // 影子对比（和过去的自己比）
+    var showSpeed: Bool = true            // 今日浮层里显示写作速率
+    var showEffect: Bool = true           // 今日浮层里显示产出效率（每番茄字数、比近 7 天高低）
+    var pomodoroEnabled: Bool = true      // 番茄钟（关掉后顶栏的 🍅 消失）
+
     // --- 书库：books 里放着每一本书的完整内容（含当前这本的副本）---
     // 当前正在写的这一本，仍然以 sheets/folders/activeId 三个字段作为"工作副本"，
     // 这样侧栏、大纲板、统计等上百处 doc.sheets 的代码不用改。
@@ -146,6 +152,7 @@ struct DocState: Codable {
     enum CodingKeys: String, CodingKey {
         case sheets, activeId, typewriter, markdown, theme, goal, folders, sidebarVisible, fontSize, seenGuide, indentChars, lineSpacing, paragraphSpacing, dailyGoal, dailyBase, dailyDone, writeSeconds, pomodoroDone, focusMinutes, breakMinutes, hourlyWords, peakWPM
         case books, activeBookId, libraryOpen
+        case shadowMode, showSpeed, showEffect, pomodoroEnabled
     }
 
     /// 只用于读老数据：0.8 之前的「是否缩进」开关
@@ -193,6 +200,10 @@ struct DocState: Codable {
         books = try c.decodeIfPresent([Book].self, forKey: .books) ?? []
         activeBookId = try c.decodeIfPresent(String.self, forKey: .activeBookId) ?? ""
         libraryOpen = try c.decodeIfPresent(Bool.self, forKey: .libraryOpen) ?? false
+        shadowMode = try c.decodeIfPresent(Bool.self, forKey: .shadowMode) ?? true
+        showSpeed = try c.decodeIfPresent(Bool.self, forKey: .showSpeed) ?? true
+        showEffect = try c.decodeIfPresent(Bool.self, forKey: .showEffect) ?? true
+        pomodoroEnabled = try c.decodeIfPresent(Bool.self, forKey: .pomodoroEnabled) ?? true
         migrateToBooksIfNeeded()
     }
 
@@ -330,6 +341,7 @@ struct DocState: Codable {
 - 出场索引：卡片弹窗里点「看出场章节」，能看到这个人出现在哪几章、各几次，点一下直接跳过去。
 - 人物关系图：视图菜单 → 人物关系图，谁和谁有关一目了然（关系里写名字就会连线）。
 - 阅读模式：视图菜单 → 阅读模式，藏起所有控件、正文只读、← → 翻篇、Esc 退出，通读改稿时用。
+- 设置（⌘,）：写作速率 / 产出效率 / 影子模式 / 番茄钟，四个都能单独关掉；数据照记，只是不显示。
 - 番茄钟与今日进度：顶栏两个环，同步显示在 **macOS 菜单栏图标**里；点菜单栏图标能开始/暂停番茄、看今日字数。时间到了右下角软提示，12 秒自己消失，不打断你。
 - 顶栏只有「新建 / 分组 / 收起侧栏」三个按钮 + 两个环，其余动作都在菜单栏图标和应用菜单里。
 - 大纲板：视图菜单 → 大纲板，章节平铺成卡片墙，拖动可重排、点一下进入那一章。

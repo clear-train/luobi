@@ -90,6 +90,7 @@ for (name, items) in [
         NSMenuItem(title: "关闭", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"),
     ]),
     ("帮助", [
+        NSMenuItem(title: "设置…", action: Selector(("showSettingsPanel:")), keyEquivalent: ","),
         NSMenuItem(title: "功能说明与使用指南", action: Selector(("showGuide:")), keyEquivalent: ""),
         NSMenuItem(title: "打开文稿库文件夹", action: Selector(("openVaultFolder:")), keyEquivalent: ""),
     ]),

@@ -60,6 +60,8 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// 正文左边界：平时贴着标题（侧栏让出宽度），专注/阅读时改成贴窗口左边，让正文能真正居中
     var scrollLeading: NSLayoutConstraint!
     var scrollLeadingFull: NSLayoutConstraint!
+    var scrollLeadingCompact: NSLayoutConstraint!
+    var titleLeadingCompact: NSLayoutConstraint!
     var sidebarViews: [NSView] = []
 
     // 书库入口：书库 ← → 写作 的切换由外层 Shell 负责，这里只放按钮和书名
@@ -379,6 +381,8 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         titleLeading.isActive = true
         scrollLeading = scrollView.leadingAnchor.constraint(equalTo: titleInput.leadingAnchor)
         scrollLeadingFull = scrollView.leadingAnchor.constraint(equalTo: leadingAnchor)
+        scrollLeadingCompact = scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 32)
+        titleLeadingCompact = titleInput.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 32)
         scrollLeading.isActive = true
         sidebarViews = [backButton, bookLabel, collapseButton, searchField, plus, sidebarScroll, sidebarFooter, divider]
         applySidebarVisibility(animated: false)
@@ -606,6 +610,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         if let note = startupNote { s += " · " + note }
         barLabel.stringValue = s
+        applyPomodoroVisibility()
         // 仪表模块接上后刷新进度
         let sel = Selector(("refreshGoalProgress:"))
         if responds(to: sel) { perform(sel, with: nil) }
@@ -675,19 +680,37 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     /// 专注模式把正文收成一条居中的阅读栏（约 720pt 宽），避免字跑到屏幕两端
+    /// 正文栏宽：写字时一眼能扫完一行大概 30–40 个字，所以最宽给到 820pt；
+    /// 更宽的窗口把多出来的空间变成两侧留白，而不是把一行拉成一整屏。
     func updateTextInsets() {
-        let w = bounds.width
-        if (focusMode || readingMode) && w > 0 {
+        let w = scrollView.bounds.width > 1 ? scrollView.bounds.width : bounds.width
+        guard w > 1 else { return }
+        if focusMode || readingMode {
             let column = min(CGFloat(720), max(CGFloat(420), w - 160))
             textView.textContainerInset = NSSize(width: max(40, (w - column) / 2), height: 40)
         } else {
-            textView.textContainerInset = NSSize(width: 40, height: 28)
+            let column = min(w - 80, CGFloat(820))
+            textView.textContainerInset = NSSize(width: max(40, (w - column) / 2), height: 28)
         }
+    }
+
+    /// 三种横向状态：侧栏展开 / 侧栏收起 / 专注·阅读（铺满）。
+    /// 以前正文左边界绕了一圈挂在标题上，侧栏一收窄标题的约束就打架，
+    /// 结果正文只扩张一点点、左边留一条空带。现在三种状态各用一条独立约束。
+    func updateHorizontalLayout() {
+        let full = focusMode || readingMode
+        let compact = doc.sidebarVisible && !full
+        titleLeading.isActive = compact
+        titleLeadingCompact.isActive = !compact
+        scrollLeading.isActive = compact
+        scrollLeadingFull.isActive = !compact
+        _ = full
+        updateTextInsets()
     }
 
     override func layout() {
         super.layout()
-        if focusMode || readingMode { updateTextInsets() }
+        updateTextInsets()
     }
 
     func applyFocusMode() {
@@ -695,9 +718,6 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         updateTextInsets()
         toolStack.isHidden = on
         collapsedActions.isHidden = on || doc.sidebarVisible
-        // 专注时正文贴窗口左边、自己靠 inset 居中；否则贴着标题左边界
-        scrollLeading.isActive = !on
-        scrollLeadingFull.isActive = on
         refreshGoalProgress(nil)
         if on {
             // 进来时给一次提示，2.4 秒后自己淡掉；之后把鼠标移到顶边才会再出现
@@ -797,13 +817,13 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     func applySidebarVisibility(animated: Bool) {
         let show = doc.sidebarVisible
+        updateHorizontalLayout()
         for v in sidebarViews { v.isHidden = !show }
         sidebarWidth.constant = show ? 236 : 0
         expandButton.isHidden = show || focusMode || readingMode
         // 收起来以后，新建入口挪到主页面右上
         collapsedActions.isHidden = show || focusMode || readingMode
-        // 收起后左边缘会多出 » 按钮，标题让开它
-        titleLeading.constant = show ? 20 : 44
+
         if animated, let w = window {
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = 0.16
@@ -853,18 +873,46 @@ extension EditorRoot {
     /// 番茄浮层要显示的全部文案（抽出来是为了能被测试直接检查）
     func tomatoStatsText() -> String {
         let minutes = doc.todaySeconds / 60
-        var lines = ["今天 \(doc.todayWritten) 字"]
-        if doc.dailyGoal > 0 { lines[0] += " / 目标 \(doc.dailyGoal)" }
+        var lines: [String] = []
+        var head = "今天 \(doc.todayWritten) 字"
+        if doc.dailyGoal > 0 { head += " / 目标 \(doc.dailyGoal)" }
+        lines.append(head)
         if doc.dailyGoal > 0 {
             let pct = min(999, Int(Double(doc.todayWritten) / Double(doc.dailyGoal) * 100))
             lines.append("目标完成 \(pct)% · 还差 \(max(0, doc.dailyGoal - doc.todayWritten)) 字")
         }
-        lines.append("番茄 \(doc.todayPomodoros) 个 · 专注 \(minutes) 分钟")
-        let week = doc.writeStats(days: 7)
-        if week.activeDays > 0 {
-            lines.append("近 7 天：平均 \(week.totalWords / max(1, week.activeDays)) 字/天 · 最长连续 \(week.longestStreak) 天")
+        if doc.showSpeed {
+            if doc.todaySeconds > 30 && doc.todayWritten > 0 {
+                let rate = Double(doc.todayWritten) * 60 / Double(max(1, doc.todaySeconds))
+                let rateText = rate < 10 ? String(format: "%.1f", rate) : String(format: "%.0f", rate)
+                var speed = "速度 · 平均 \(rateText) 字/分钟"
+                if doc.peakWPM > 0 { speed += " · 最快 \(doc.peakWPM) 字/分钟" }
+                lines.append(speed)
+                lines.append("时间 · 专注 \(minutes) 分钟")
+            } else if doc.todaySeconds > 30 {
+                lines.append("时间 · 专注 \(minutes) 分钟（今天还没净增字）")
+            } else {
+                lines.append("速度 · 今天还没开始计时")
+            }
         }
-        if shadowModeEnabled {
+        if doc.showEffect {
+            let p = doc.todayPomodoros
+            if p > 0 {
+                lines.append("效率 · 每个番茄 \(doc.todayWritten / p) 字 · 共 \(p) 个")
+            } else {
+                lines.append("效率 · 完整做完一个番茄才有「每番茄字数」")
+            }
+            let week = doc.writeStats(days: 7)
+            if week.activeDays > 0 {
+                let avg = week.totalWords / max(1, week.activeDays)
+                if avg > 0 {
+                    let diff = doc.todayWritten - avg
+                    let pct = Int(abs(Double(diff) / Double(avg) * 100))
+                    lines.append("对比 · 近 7 天平均 \(avg) 字/天，今天\(diff >= 0 ? "高" : "低") \(pct)%")
+                }
+            }
+        }
+        if doc.shadowMode {
             let sh = doc.shadow()
             if sh.hasHistory {
                 lines.append("影子 · 过去的你这会儿 \(sh.expected) 字，你现在 \(sh.actual) 字（\(sh.verdict)）")
@@ -882,7 +930,7 @@ extension EditorRoot {
             } else {
                 lines.append("专注已暂停 · 还剩 \(pomoRemainingText)")
             }
-        } else {
+        } else if doc.pomodoroEnabled {
             lines.append("点一下开始 \(doc.focusMinutes) 分钟专注")
         }
         return lines.joined(separator: "\n")
@@ -901,11 +949,21 @@ extension EditorRoot {
         let box = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 0))
         label.translatesAutoresizingMaskIntoConstraints = false
         box.addSubview(label)
+        // 浮层底部留一个「设置…」，不想看这些数字的人从这里关
+        let link = NSButton(title: "设置…（可以关掉这些）", target: self,
+                            action: Selector(("showSettingsPanel:")))
+        link.isBordered = false
+        link.font = NSFont.systemFont(ofSize: 11)
+        link.contentTintColor = .secondaryLabelColor
+        link.translatesAutoresizingMaskIntoConstraints = false
+        box.addSubview(link)
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 14),
             label.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -14),
             label.topAnchor.constraint(equalTo: box.topAnchor, constant: 10),
-            label.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -10),
+            link.leadingAnchor.constraint(equalTo: label.leadingAnchor, constant: -2),
+            link.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 4),
+            link.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -6),
         ])
         let vc = NSViewController()
         vc.view = box
