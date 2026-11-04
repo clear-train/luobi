@@ -40,6 +40,9 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var readingHint: NSTextField? = nil
     var sidebarWasVisible = true
     var focusExitButton = NSButton()
+    /// 退出专注的提示淡出计时器；提示只在进来时出现，或鼠标移到顶上时出现
+    var focusHintTimer: Timer?
+    var focusTopTracker: NSTrackingArea?
     var searchField = NSSearchField()
     var plusButton = NSButton()
     var folderButton = NSButton()
@@ -54,6 +57,9 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var sidebarToggleButton: NSButton? = nil
     var sidebarWidth: NSLayoutConstraint!
     var titleLeading: NSLayoutConstraint!
+    /// 正文左边界：平时贴着标题（侧栏让出宽度），专注/阅读时改成贴窗口左边，让正文能真正居中
+    var scrollLeading: NSLayoutConstraint!
+    var scrollLeadingFull: NSLayoutConstraint!
     var sidebarViews: [NSView] = []
 
     // 书库入口：书库 ← → 写作 的切换由外层 Shell 负责，这里只放按钮和书名
@@ -359,7 +365,6 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             focusExitButton.heightAnchor.constraint(equalToConstant: 24),
 
             scrollView.topAnchor.constraint(equalTo: titleInput.bottomAnchor, constant: 6),
-            scrollView.leadingAnchor.constraint(equalTo: titleInput.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
 
             barLabel.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 6),
@@ -372,6 +377,9 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         sidebarWidth.isActive = true
         titleLeading = titleInput.leadingAnchor.constraint(equalTo: sidebarScroll.trailingAnchor, constant: 20)
         titleLeading.isActive = true
+        scrollLeading = scrollView.leadingAnchor.constraint(equalTo: titleInput.leadingAnchor)
+        scrollLeadingFull = scrollView.leadingAnchor.constraint(equalTo: leadingAnchor)
+        scrollLeading.isActive = true
         sidebarViews = [backButton, bookLabel, collapseButton, searchField, plus, sidebarScroll, sidebarFooter, divider]
         applySidebarVisibility(animated: false)
 
@@ -687,7 +695,19 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         updateTextInsets()
         toolStack.isHidden = on
         collapsedActions.isHidden = on || doc.sidebarVisible
-        focusExitButton.isHidden = !on
+        // 专注时正文贴窗口左边、自己靠 inset 居中；否则贴着标题左边界
+        scrollLeading.isActive = !on
+        scrollLeadingFull.isActive = on
+        refreshGoalProgress(nil)
+        if on {
+            // 进来时给一次提示，2.4 秒后自己淡掉；之后把鼠标移到顶边才会再出现
+            showFocusHint(autoHide: true)
+        } else {
+            focusHintTimer?.invalidate()
+            focusHintTimer = nil
+            focusExitButton.isHidden = true
+            focusExitButton.alphaValue = 1
+        }
         titleInput.isHidden = on
         if on {
             // 进专注时顺手记住侧栏原本的状态，退出时还原
@@ -697,6 +717,61 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             doc.sidebarVisible = sidebarWasVisible
         }
         applySidebarVisibility(animated: true)
+    }
+
+    // MARK: 专注模式的「退出提示」
+
+    func showFocusHint(autoHide: Bool) {
+        guard focusMode else { return }
+        focusHintTimer?.invalidate()
+        focusHintTimer = nil
+        focusExitButton.isHidden = false
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.18
+            self.focusExitButton.animator().alphaValue = 1
+        }, completionHandler: nil)
+        guard autoHide else { return }
+        let t = Timer(timeInterval: 2.4, repeats: false) { [weak self] _ in
+            self?.hideFocusHint()
+        }
+        RunLoop.main.add(t, forMode: .common)
+        focusHintTimer = t
+    }
+
+    func hideFocusHint() {
+        guard focusMode else { return }
+        focusHintTimer?.invalidate()
+        focusHintTimer = nil
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.35
+            self.focusExitButton.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            guard let self = self, self.focusMode else { return }
+            self.focusExitButton.isHidden = true
+            self.focusExitButton.alphaValue = 1
+        })
+    }
+
+    /// 顶部 64pt 是"悬停区"：鼠标移到这里才提示怎么退出
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let old = focusTopTracker { removeTrackingArea(old) }
+        let rect = NSRect(x: 0, y: max(0, bounds.height - 64), width: bounds.width, height: 64)
+        let area = NSTrackingArea(rect: rect,
+                                  options: [.mouseEnteredAndExited, .activeInKeyWindow],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        focusTopTracker = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        if focusMode { showFocusHint(autoHide: false) }
+        super.mouseEntered(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        if focusMode { hideFocusHint() }
+        super.mouseExited(with: event)
     }
 
     override func cancelOperation(_ sender: Any?) {

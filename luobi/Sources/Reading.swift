@@ -45,6 +45,10 @@ extension EditorRoot {
 
     func applyReadingMode() {
         let on = readingMode
+        scrollLeading.isActive = !on
+        scrollLeadingFull.isActive = on
+        updateTextInsets()
+        refreshGoalProgress(nil)
         if on {
             readingWasSidebarVisible = doc.sidebarVisible
             doc.sidebarVisible = false

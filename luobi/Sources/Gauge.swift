@@ -56,16 +56,18 @@ extension EditorRoot {
     @objc func refreshGoalProgress(_ sender: Any?) {
         if gaugeGoalBar == nil { installGoalBar(sender) }
         guard let bar = gaugeGoalBar else { return }
+        // 专注/阅读是「只剩正文」的状态，进度条也一起藏起来
+        bar.isHidden = focusMode || readingMode
         // 优先用「今日目标」：写小说最需要的是今天有没有推进，而不是全书总量
         if doc.dailyGoal > 0 {
-            bar.isHidden = false
+            bar.isHidden = focusMode || readingMode
             let n = doc.todayWritten
             bar.progress = min(1, Double(n) / Double(doc.dailyGoal))
             bar.reachedGoal = (n >= doc.dailyGoal)
             return
         }
         let goal = doc.goal
-        bar.isHidden = (goal <= 0)
+        bar.isHidden = (goal <= 0) || focusMode || readingMode
         guard goal > 0 else { return }
         let n = statCJK(textView.string) + statLatin(textView.string)
         bar.progress = min(1, Double(n) / Double(goal))
