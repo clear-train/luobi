@@ -49,6 +49,7 @@ extension EditorRoot {
     }
 
     func startPomodoro(isBreak: Bool) {
+        pomoStartWords = totalWords(doc)
         pomoIsBreak = isBreak
         pomoSpent = 0
         pomoStartAt = Date()
@@ -109,8 +110,16 @@ extension EditorRoot {
             } else {
                 doc.addPomodoro()
                 persistNow()
+                let wrote = max(0, totalWords(doc) - pomoStartWords)
+                var detail = "这一段时间写了 \(wrote) 字。现在开始正计时——想停就停，想接着写也算。今天已完成 \(doc.todayPomodoros) 个番茄。"
+                if shadowModeEnabled {
+                    let sh = doc.shadow()
+                    if sh.hasHistory {
+                        detail += "\n影子：过去的你这会儿 \(sh.expected) 字，你 \(sh.actual) 字（\(sh.verdict)）"
+                    }
+                }
                 showToast(title: "\(Int(pomoDuration / 60)) 分钟到了",
-                          detail: "现在开始正计时——想停就停，想接着写也算。今天已完成 \(doc.todayPomodoros) 个番茄。",
+                          detail: detail,
                           seconds: 16,
                           buttons: [("休息 \(doc.breakMinutes) 分钟", Selector(("startBreakFromToast:"))),
                                     ("继续写（正计时）", Selector(("dismissToast:")))])

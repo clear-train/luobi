@@ -266,6 +266,11 @@ extension EditorRoot {
         add("设置今日写作目标…", "showGoalPanel:")
         add("写作统计…", "showStatsPanel:")
         add("写作节奏…", "showRhythmPanel:")
+        let shadowItem = NSMenuItem(title: shadowModeEnabled ? "影子模式：开" : "影子模式：关",
+                                    action: Selector(("toggleShadowMode:")), keyEquivalent: "")
+        shadowItem.target = self
+        shadowItem.state = shadowModeEnabled ? .on : .off
+        menu.addItem(shadowItem)
         add("大纲板…", "showBoard:")
         add("人物一览…", "showCardsOverview:")
         menu.addItem(.separator())

@@ -66,6 +66,8 @@ for (name, items) in [
     ("视图", [
         NSMenuItem(title: "返回书库", action: Selector(("showLibraryAction:")), keyEquivalent: ""),
         NSMenuItem(title: "显示/收起侧栏", action: Selector(("toggleSidebar:")), keyEquivalent: ""),
+        NSMenuItem(title: "新建页面", action: Selector(("addSheet:")), keyEquivalent: ""),
+        NSMenuItem(title: "新建章节", action: Selector(("addChapter:")), keyEquivalent: ""),
         NSMenuItem(title: "新建分组", action: Selector(("addFolder:")), keyEquivalent: ""),
         { let s = NSMenuItem.separator(); return s }(),
         NSMenuItem(title: "大纲板…", action: Selector(("showBoard:")), keyEquivalent: ""),
@@ -80,6 +82,8 @@ for (name, items) in [
         NSMenuItem(title: "番茄钟时长设置…", action: Selector(("showPomodoroSettings:")), keyEquivalent: ""),
         NSMenuItem(title: "人物一览…", action: Selector(("showCardsOverview:")), keyEquivalent: ""),
         NSMenuItem(title: "人物关系图…", action: Selector(("showRelationGraph:")), keyEquivalent: ""),
+        { let s = NSMenuItem.separator(); return s }(),
+        NSMenuItem(title: "影子模式（和过去的自己比）", action: Selector(("toggleShadowMode:")), keyEquivalent: ""),
     ]),
     ("窗口", [
         NSMenuItem(title: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"),

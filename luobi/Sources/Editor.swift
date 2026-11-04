@@ -47,6 +47,10 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var table = NSOutlineView()
     var toolStack = NSStackView()
     var sidebarFooter = NSStackView()
+    /// 侧栏收起时才出现的「新建」入口（放在主页面右上角）
+    var collapsedActions = NSStackView()
+    /// 这一段番茄开始时的总字数，用来在结束时告诉你"这一番茄写了多少"
+    var pomoStartWords = 0
     var sidebarToggleButton: NSButton? = nil
     var sidebarWidth: NSLayoutConstraint!
     var titleLeading: NSLayoutConstraint!
@@ -239,19 +243,21 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
         buildToolbar()
 
-        // 侧栏底部常驻入口：不靠记快捷键，也不靠翻菜单
-        let footHint = NSTextField(labelWithString: "右键管理·拖动")
-        footHint.font = NSFont.systemFont(ofSize: 10.5)
-        footHint.textColor = .secondaryLabelColor
-        footHint.translatesAutoresizingMaskIntoConstraints = false
+        // 侧栏底部常驻入口：新建页面 / 新建章节。
+        // 用户反馈"新建页面和新建章节消失了"——顶栏塞不下，但侧栏底部一直有位置。
         sidebarFooter = NSStackView()
         sidebarFooter.orientation = .horizontal
         sidebarFooter.spacing = 6
         sidebarFooter.alignment = .centerY
         sidebarFooter.translatesAutoresizingMaskIntoConstraints = false
-        // 页脚只留一句提示：其余入口都在菜单栏图标和菜单里，顶栏/页脚越空越好
-        footHint.toolTip = "右键文稿或分组可以新建/重命名/移动/删除；也可以直接把文稿拖进分组"
-        sidebarFooter.addArrangedSubview(footHint)
+        let newPage = CapsuleButton(title: "＋ 页面", action: Selector(("addSheet:")),
+                                    tooltip: "新建一篇空白文稿")
+        newPage.target = self
+        let newChapter = CapsuleButton(title: "＋ 章节", action: Selector(("addChapter:")),
+                                       tooltip: "新建一章（自动编号，插在当前这章后面）")
+        newChapter.target = self
+        sidebarFooter.addArrangedSubview(newPage)
+        sidebarFooter.addArrangedSubview(newChapter)
         sidebarFooter.setHuggingPriority(.defaultLow, for: .horizontal)
 
         // 侧栏与正文之间的一条细分隔线（约束在主约束块里，避免引用尚未入树的视图）
@@ -270,6 +276,19 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         addSubview(divider)
         addSubview(titleInput)
         addSubview(toolStack)
+        collapsedActions = NSStackView()
+        collapsedActions.orientation = .horizontal
+        collapsedActions.spacing = 6
+        collapsedActions.alignment = .centerY
+        collapsedActions.translatesAutoresizingMaskIntoConstraints = false
+        let cPage = CapsuleButton(title: "＋ 页面", action: Selector(("addSheet:")), tooltip: "新建一篇空白文稿")
+        cPage.target = self
+        let cChapter = CapsuleButton(title: "＋ 章节", action: Selector(("addChapter:")), tooltip: "新建一章")
+        cChapter.target = self
+        collapsedActions.addArrangedSubview(cPage)
+        collapsedActions.addArrangedSubview(cChapter)
+        collapsedActions.isHidden = true
+        addSubview(collapsedActions)
 
         focusExitButton = NSButton(title: "退出专注（Esc）", target: self, action: Selector(("toggleFocus:")))
         focusExitButton.bezelStyle = .texturedRounded
@@ -328,11 +347,13 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             sidebarFooter.heightAnchor.constraint(equalToConstant: 22),
 
             titleInput.topAnchor.constraint(equalTo: topAnchor, constant: 40),
-            titleInput.trailingAnchor.constraint(equalTo: toolStack.leadingAnchor, constant: -12),
+            titleInput.trailingAnchor.constraint(equalTo: collapsedActions.leadingAnchor, constant: -12),
 
             toolStack.topAnchor.constraint(equalTo: topAnchor, constant: 42),
             toolStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
             toolStack.heightAnchor.constraint(equalToConstant: 24),
+            collapsedActions.trailingAnchor.constraint(equalTo: toolStack.leadingAnchor, constant: -10),
+            collapsedActions.centerYAnchor.constraint(equalTo: toolStack.centerYAnchor),
             focusExitButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
             focusExitButton.topAnchor.constraint(equalTo: topAnchor, constant: 42),
             focusExitButton.heightAnchor.constraint(equalToConstant: 24),
@@ -375,7 +396,8 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // 顶栏只留两个环：新建/分组/收起侧栏都已经挪进侧栏本身了。
         // 剩下的"偶尔用一次"的动作在菜单栏图标和菜单里。
         let groups: [[(String, String, String)]] = [
-            [("__pomoRing__", "togglePomodoro:", "番茄钟：点一下开始专注，再点暂停；鼠标停在这里看今天的数据"),
+            [("专注", "toggleFocus:", "藏起所有控件只留正文（Esc 退出）"),
+             ("__pomoRing__", "togglePomodoro:", "番茄钟：点一下开始专注，再点暂停；鼠标停在这里看今天的数据"),
              ("__goalRing__", "showStatsPanel:", "今日写作进度：点开看最近 30 天的统计")],
         ]
         toolStack = NSStackView()
@@ -480,6 +502,30 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         let s = Sheet(id: UUID().uuidString, title: t, content: "", folderId: folder)
         doc.sheets.append(s)
+        switchTo(s.id)
+    }
+
+    /// 新建一章：自动编号，插在当前这章后面（同名就往后顺延）
+    @objc func addChapter(_ sender: Any?) {
+        var n = doc.sheets.filter { $0.card == nil && $0.title.contains("章") }.count + 1
+        var t = "第\(doc.chineseNumber(n))章"
+        while doc.sheets.contains(where: { $0.title == t }) {
+            n += 1
+            t = "第\(doc.chineseNumber(n))章"
+        }
+        var folder: String? = nil
+        if let cur = doc.sheets.first(where: { $0.id == doc.activeId }) {
+            folder = cur.folderId
+        } else if let row = table.selectedRow >= 0 ? table.selectedRow : nil,
+                  let it = table.item(atRow: row) as? SideItem, let f = it.folder {
+            folder = f.id
+        }
+        let s = Sheet(id: UUID().uuidString, title: t, content: "", folderId: folder)
+        if let idx = doc.sheets.firstIndex(where: { $0.id == doc.activeId }) {
+            doc.sheets.insert(s, at: idx + 1)
+        } else {
+            doc.sheets.append(s)
+        }
         switchTo(s.id)
     }
 
@@ -640,6 +686,7 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let on = focusMode
         updateTextInsets()
         toolStack.isHidden = on
+        collapsedActions.isHidden = on || doc.sidebarVisible
         focusExitButton.isHidden = !on
         titleInput.isHidden = on
         if on {
@@ -678,6 +725,8 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         for v in sidebarViews { v.isHidden = !show }
         sidebarWidth.constant = show ? 236 : 0
         expandButton.isHidden = show || focusMode || readingMode
+        // 收起来以后，新建入口挪到主页面右上
+        collapsedActions.isHidden = show || focusMode || readingMode
         // 收起后左边缘会多出 » 按钮，标题让开它
         titleLeading.constant = show ? 20 : 44
         if animated, let w = window {
@@ -726,15 +775,28 @@ extension EditorRoot {
 
     /// 鼠标停在番茄环上：今天写了多少、几个番茄、专注多久，一屏看完。
     /// 用浮层而不是状态栏，是因为"想知道"的时机是鼠标停下来的那一瞬间。
-    func showTomatoStats() {
-        guard let btn = pomoButton else { return }
-        let pop = tomatoPopover ?? NSPopover()
-        pop.behavior = .semitransient
-        pop.animates = false
+    /// 番茄浮层要显示的全部文案（抽出来是为了能被测试直接检查）
+    func tomatoStatsText() -> String {
         let minutes = doc.todaySeconds / 60
         var lines = ["今天 \(doc.todayWritten) 字"]
         if doc.dailyGoal > 0 { lines[0] += " / 目标 \(doc.dailyGoal)" }
+        if doc.dailyGoal > 0 {
+            let pct = min(999, Int(Double(doc.todayWritten) / Double(doc.dailyGoal) * 100))
+            lines.append("目标完成 \(pct)% · 还差 \(max(0, doc.dailyGoal - doc.todayWritten)) 字")
+        }
         lines.append("番茄 \(doc.todayPomodoros) 个 · 专注 \(minutes) 分钟")
+        let week = doc.writeStats(days: 7)
+        if week.activeDays > 0 {
+            lines.append("近 7 天：平均 \(week.totalWords / max(1, week.activeDays)) 字/天 · 最长连续 \(week.longestStreak) 天")
+        }
+        if shadowModeEnabled {
+            let sh = doc.shadow()
+            if sh.hasHistory {
+                lines.append("影子 · 过去的你这会儿 \(sh.expected) 字，你现在 \(sh.actual) 字（\(sh.verdict)）")
+            } else {
+                lines.append("影子：再写几天就有参照了")
+            }
+        }
         if hasPomoSession {
             if pomoIsBreak {
                 lines.append(pomoRunning ? "休息中 · 还剩 \(pomoRemainingText)" : "休息已暂停")
@@ -748,7 +810,15 @@ extension EditorRoot {
         } else {
             lines.append("点一下开始 \(doc.focusMinutes) 分钟专注")
         }
-        let label = NSTextField(labelWithString: lines.joined(separator: "\n"))
+        return lines.joined(separator: "\n")
+    }
+
+    func showTomatoStats() {
+        guard let btn = pomoButton else { return }
+        let pop = tomatoPopover ?? NSPopover()
+        pop.behavior = .semitransient
+        pop.animates = false
+        let label = NSTextField(labelWithString: tomatoStatsText())
         label.font = NSFont.systemFont(ofSize: 12)
         label.textColor = .labelColor
         label.maximumNumberOfLines = 0
