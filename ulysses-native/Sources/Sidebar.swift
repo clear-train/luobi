@@ -378,31 +378,43 @@ extension EditorRoot: NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDele
                      item: Any?,
                      childIndex index: Int) -> Bool {
         guard let str = info.draggingPasteboard.string(forType: NSPasteboard.PasteboardType("com.ulysses.sheet")),
-              let i = doc.sheets.firstIndex(where: { $0.id == str }) else { return false }
-        _ = i
-        // 落点决定两件事：归到哪个分组 + 插在谁前面
-        var target: String? = nil
-        var anchor: String? = nil
-        if let it = item as? SideItem {
-            if let f = it.folder {
-                target = f.id
-                // 落在分组内部第 index 个孩子之前；只把文稿当作锚点
-                let kids = childItems(of: it)
-                if index < kids.count, let s = kids[index].sheet { anchor = s.id }
-            } else if let s = it.sheet {
-                target = s.folderId
-                anchor = s.id
-            }
-        } else {
-            // 拖到空白处 = 放到最外层末尾
-            let roots = rootItems()
-            if index < roots.count, let s = roots[index].sheet { anchor = s.id }
-        }
+              doc.sheets.contains(where: { $0.id == str }) else { return false }
+
+        let (target, anchor) = dropTarget(item: item, childIndex: index)
         reorder(str, toFolder: target, before: anchor)
         persistNow()
         refreshTable()
         if let f = target { expandFolder(f) }
         return true
+    }
+
+    /// 落点 → (归到哪个分组, 插在哪篇之前)。
+    ///
+    /// 注意 `NSOutlineViewDropOnItemIndex`（-1）：把文稿**直接松手在分组这一行上**时，
+    /// AppKit 传的就是 -1。曾经这里没判负数，`kids[-1]` 直接数组越界崩溃。
+    /// 语义上 -1 = "放进这个分组里"，放在末尾。
+    func dropTarget(item: Any?, childIndex index: Int) -> (folderId: String?, anchorId: String?) {
+        let idx = (index == NSOutlineViewDropOnItemIndex) ? -1 : index
+
+        if let it = item as? SideItem {
+            if let f = it.folder {
+                // 落在分组上（-1）或分组内某位置
+                guard idx >= 0 else { return (f.id, nil) }
+                let kids = childItems(of: it)
+                if idx < kids.count, let s = kids[idx].sheet { return (f.id, s.id) }
+                return (f.id, nil)
+            }
+            if let s = it.sheet {
+                // 落在某篇文稿上 = 跟它同组、排在它前面
+                return (s.folderId, s.id)
+            }
+        }
+
+        // 拖到空白处 = 放到最外层
+        guard idx >= 0 else { return (nil, nil) }
+        let roots = rootItems()
+        if idx < roots.count, let s = roots[idx].sheet { return (nil, s.id) }
+        return (nil, nil)
     }
 
     /// 把一篇文稿挪到某分组内、某篇之前（anchor 为 nil 则放到该组末尾）。
