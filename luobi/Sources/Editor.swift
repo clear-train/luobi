@@ -44,6 +44,8 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var focusExitButton = NSButton()
     /// 退出专注的提示淡出计时器；提示只在进来时出现，或鼠标移到顶上时出现
     var focusHintTimer: Timer?
+    /// 待重排的段落范围（打字时只重排这一段；nil = 全文）
+    var pendingStyleRange: NSRange?
     var focusTopTracker: NSTrackingArea?
     var searchField = NSSearchField()
     var plusButton = NSButton()
@@ -558,9 +560,9 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     // MARK: 保存（800ms 防抖）
 
-    func markDirty() {
+    func markDirty(edited range: NSRange? = nil) {
         refreshBar()
-        restyleSoon()
+        restyleSoon(around: range)
         saveTimer?.invalidate()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: false) { [weak self] _ in
             self?.persistNow()
@@ -653,7 +655,8 @@ final class EditorRoot: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         noteActivity()
         if let i = activeIndex {
             doc.sheets[i].content = textView.string
-            markDirty()
+            let caret = textView.selectedRange()
+            markDirty(edited: NSRange(location: max(0, caret.location - 1), length: 0))
             if doc.typewriter {
                 DispatchQueue.main.async { [weak self] in
                     self?.textView.centerSelectionInVisibleArea(nil)

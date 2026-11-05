@@ -8,25 +8,61 @@ private var headingFonts: [NSFont] { (1...6).map { Typo.heading($0) } }
 
 extension EditorRoot {
     // 100ms 防抖的排版（跟手，但不逐键）
-    func restyleSoon() {
+    // around: 只重排这个范围覆盖的段落（打字时）；nil = 全文（开文档 / 换主题 / 改字号）
+    func restyleSoon(around range: NSRange? = nil) {
+        pendingStyleRange = range
         styleTimer?.invalidate()
         styleTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
-            self?.applyMarkdownStyling()
+            guard let self = self else { return }
+            let pending = self.pendingStyleRange
+            self.pendingStyleRange = nil
+            self.applyMarkdownStyling(in: pending)
         }
     }
 
-    func applyMarkdownStyling() {
+    func applyMarkdownStyling(in range: NSRange? = nil) {
         let storage = textView.textStorage!
-        let full = NSRange(location: 0, length: storage.length)
-        guard doc.markdown else {
-            storage.setAttributes(bodyAttributes, range: full)
-            return
-        }
-        storage.setAttributes(bodyAttributes, range: full)
-
         let ns = storage.string as NSString
-        if full.length == 0 { return }
-        ns.enumerateSubstrings(in: full, options: [.byLines]) { [weak self] line, _, enclosing, _ in
+        let target: NSRange
+        if let r = range, ns.length > 0 {
+            let clamped = NSRange(location: max(0, min(r.location, ns.length)),
+                                  length: 0)
+            target = ns.paragraphRange(for: clamped)
+        } else {
+            target = NSRange(location: 0, length: ns.length)
+        }
+        guard target.length > 0 else { return }
+
+        // 长文里重排属性会让 NSTextView 自己重算可见区域，把视口甩走一屏
+        // ——用户看到的就是"写着写着突然跳回最上面"。所以重排前后自己守住视口和光标。
+        let clip = textView.enclosingScrollView?.contentView
+        let savedOrigin = clip?.bounds.origin
+        let savedSelection = textView.selectedRange()
+        let savedTyping = textView.typingAttributes
+
+        storage.setAttributes(bodyAttributes, range: target)
+        if doc.markdown {
+            styleParagraphs(storage, in: target)
+        }
+        if readingMode { hideMarkers(storage, in: target) }
+        textView.typingAttributes = savedTyping
+
+        if textView.selectedRange() != savedSelection,
+           NSMaxRange(savedSelection) <= storage.length {
+            textView.setSelectedRange(savedSelection)
+        }
+        if let clip = clip, let origin = savedOrigin {
+            let maxY = max(0, textView.frame.height - clip.bounds.height)
+            clip.scroll(to: NSPoint(x: 0, y: min(max(0, origin.y), maxY)))
+            textView.enclosingScrollView?.reflectScrolledClipView(clip)
+        }
+        ensureCaretVisible()
+    }
+
+    /// 只给 target 范围内的每一行上样式（标题 / 加粗 / 引用）
+    private func styleParagraphs(_ storage: NSTextStorage, in target: NSRange) {
+        let ns = storage.string as NSString
+        ns.enumerateSubstrings(in: target, options: [.byLines]) { [weak self] line, _, enclosing, _ in
             guard let self = self, let line = line else { return }
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty else { return }
@@ -68,9 +104,21 @@ extension EditorRoot {
                 ], range: enclosing)
             }
         }
+    }
 
-        // 阅读模式下把标记符号藏起来（保留字符，只是看不见——不破坏正文和光标位置）
-        if readingMode { hideMarkers(storage, in: full) }
+    /// 重排后如果光标被挤到可视区外，只做最小滚动把它带回来（不整页跳）
+    private func ensureCaretVisible() {
+        guard let lm = textView.layoutManager, let tc = textView.textContainer else { return }
+        let sel = textView.selectedRange()
+        let len = (textView.string as NSString).length
+        guard sel.location <= len else { return }
+        let gr = lm.glyphRange(forCharacterRange: sel, actualCharacterRange: nil)
+        var caret = lm.boundingRect(forGlyphRange: gr, in: tc)
+        caret.origin.x += textView.textContainerInset.width
+        caret.origin.y += textView.textContainerInset.height
+        if !textView.visibleRect.insetBy(dx: 0, dy: -2).contains(caret) {
+            textView.scrollToVisible(caret)
+        }
     }
 
     /// 把 # ** > - 这些标记本身变成透明。阅读时只该看到文字，不该看到语法。
